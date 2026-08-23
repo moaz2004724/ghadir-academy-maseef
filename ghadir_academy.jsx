@@ -1881,18 +1881,25 @@ export default function App() {
         };
 
         if (data.players) {
-          // Auto-repair missing logins/data for display
-          const repaired = data.players.map(p => {
-            const migrated = migrateItem(p);
-            if (migrated.email && migrated.password) return migrated;
-            const phone = migrated.phone || "0500000000";
-            return { 
-              ...migrated, 
-              email: migrated.email || `ghadir_${phone}@ghadirsports.sa`,
-              password: migrated.password || `ghadir_${phone.slice(-4)}`
-            };
-          });
-          setPlayers(repaired);
+          if (data.players.length === 0) {
+            const localPlayers = JSON.parse(localStorage.getItem('ghadir_players') || '[]');
+            if (localPlayers.length > 0) {
+              localPlayers.forEach(lp => syncWithAPI('players', lp));
+            }
+          } else {
+            // Auto-repair missing logins/data for display
+            const repaired = data.players.map(p => {
+              const migrated = migrateItem(p);
+              if (migrated.email && migrated.password) return migrated;
+              const phone = migrated.phone || "0500000000";
+              return { 
+                ...migrated, 
+                email: migrated.email || `ghadir_${phone}@ghadirsports.sa`,
+                password: migrated.password || `ghadir_${phone.slice(-4)}`
+              };
+            });
+            setPlayers(repaired);
+          }
         }
         if (data.coaches) setCoaches(data.coaches.map(migrateItem));
         if (data.groups) {
@@ -2237,17 +2244,17 @@ function AdminPortal({ user, onLogout, groups, setGroups, coaches, setCoaches, p
   ];
   return (
     <Shell title="لوحة الإدارة" subtitle="أكاديمية غدير الرياضية - فرع المصيف" color="#2563EB" icon="dashboard" tabs={tabs} activeTab={tab} setActiveTab={setTab} onLogout={onLogout} badge="مدير عام" user={user} t={t} syncStatus={syncStatus}>
-      {tab === "overview"  && <AdminOverview players={players} coaches={coaches} groups={groups} payments={payments} attendance={attendance} trainings={trainings} t={t} parents={parents} messages={messages} setMessages={setMessages} setTab={setTab} setSelectedPlayerId={setSelectedPlayerId} />}
-      {tab === "teams"     && <AdminTeams groups={groups} setGroups={setGroups} coaches={coaches} players={players} t={t} />}
-      {tab === "attendance" && <AdminAttendance groups={groups} players={players} coaches={coaches} attendance={attendance} setAttendance={setAttendance} coachesAttendance={coachesAttendance} setCoachesAttendance={setCoachesAttendance} t={t} payments={payments} trainings={trainings} />}
-      {tab === "coaches"   && <AdminCoaches coaches={coaches} setCoaches={setCoaches} groups={groups} players={players} payments={payments} t={t} />}
-      {tab === "players"   && <AdminPlayers players={players} setPlayers={setPlayers} groups={groups} parents={parents} evals={evals} coaches={coaches} t={t} trainings={trainings} attendance={attendance} payments={payments} selectedPlayerId={selectedPlayerId} setSelectedPlayerId={setSelectedPlayerId} />}
-      {tab === "payments"  && <AdminPayments payments={payments} setPayments={setPayments} players={players} coaches={coaches} parents={parents} prices={prices} t={t} attendance={attendance} setAttendance={setAttendance} trainings={trainings} groups={groups} />}
-      {tab === "prices"    && <AdminPrices prices={prices} setPrices={setPrices} t={t} groups={groups} setGroups={setGroups} />}
-      {tab === "schedule"  && <AdminTrainings trainings={trainings} setTrainings={setTrainings} groups={groups} coaches={coaches} t={t} />}
+      {tab === "overview"  && <AdminOverview players={players} coaches={coaches} groups={groups} payments={payments} attendance={attendance} trainings={trainings} t={t} parents={shared.parents} messages={messages} setMessages={shared.setMessages} setTab={setTab} setSelectedPlayerId={setSelectedPlayerId} />}
+      {tab === "teams"     && <AdminTeams groups={groups} setGroups={shared.setGroups} coaches={coaches} players={players} t={t} />}
+      {tab === "attendance" && <AdminAttendance groups={groups} players={players} coaches={coaches} attendance={attendance} setAttendance={shared.setAttendance} coachesAttendance={coachesAttendance} setCoachesAttendance={shared.setCoachesAttendance} t={t} payments={payments} trainings={trainings} />}
+      {tab === "coaches"   && <AdminCoaches coaches={coaches} setCoaches={shared.setCoaches} groups={groups} players={players} payments={payments} t={t} />}
+      {tab === "players"   && <AdminPlayers players={players} setPlayers={shared.setPlayers} groups={groups} parents={shared.parents} evals={evals} coaches={coaches} t={t} trainings={trainings} attendance={attendance} payments={payments} selectedPlayerId={selectedPlayerId} setSelectedPlayerId={setSelectedPlayerId} />}
+      {tab === "payments"  && <AdminPayments payments={payments} setPayments={shared.setPayments} players={players} coaches={coaches} parents={shared.parents} prices={prices} t={t} attendance={attendance} setAttendance={shared.setAttendance} trainings={trainings} groups={groups} />}
+      {tab === "prices"    && <AdminPrices prices={prices} setPrices={shared.setPrices} t={t} groups={groups} setGroups={shared.setGroups} />}
+      {tab === "schedule"  && <AdminTrainings trainings={trainings} setTrainings={shared.setTrainings} groups={groups} coaches={coaches} t={t} />}
       {tab === "reports"   && <AdminReports players={players} coaches={coaches} groups={groups} payments={payments} attendance={attendance} evals={evals} t={t} />}
-      {tab === "events"    && <AdminEvents players={players} groups={groups} parents={parents} payments={payments} trainings={trainings} attendance={attendance} t={t} />}
-      {tab === "messages"  && <Messaging messages={messages} setMessages={setMessages} meId="admin" meName="الإدارة" coaches={coaches} parents={parents} t={t} />}
+      {tab === "events"    && <AdminEvents players={players} groups={groups} parents={shared.parents} payments={payments} trainings={trainings} attendance={attendance} t={t} />}
+      {tab === "messages"  && <Messaging messages={messages} setMessages={shared.setMessages} meId="admin" meName="الإدارة" coaches={coaches} parents={shared.parents} t={t} />}
     </Shell>
   );
 }

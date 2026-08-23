@@ -191,8 +191,15 @@ app.post('/api/login', async (req, res) => {
       }
     }
 
+    const phoneEmail = cleanEmail.includes('@') ? cleanEmail : `ghadir_${cleanEmail}@ghadirsports.sa`;
+
     let user = await prisma.user.findFirst({
-      where: { email: { equals: cleanEmail, mode: 'insensitive' } },
+      where: {
+        OR: [
+          { email: { equals: cleanEmail, mode: 'insensitive' } },
+          { email: { equals: phoneEmail, mode: 'insensitive' } }
+        ]
+      },
       include: {
         coachProfile: true,
         parentProfile: true,
@@ -200,16 +207,52 @@ app.post('/api/login', async (req, res) => {
       }
     });
 
-    const isPasswordValid = user && (
-      bcrypt.compareSync(cleanPassword, user.password) ||
-      (user.role === 'ADMIN' && (
+    // Check if player or parent profile matched by phone
+    if (!user) {
+      const parentByPhone = await prisma.parent.findFirst({
+        where: { phone: cleanEmail },
+        include: { user: true }
+      });
+      if (parentByPhone && parentByPhone.user) {
+        user = parentByPhone.user;
+      }
+    }
+
+    if (!user) {
+      const playerByPhone = await prisma.player.findFirst({
+        where: {
+          OR: [
+            { email: { equals: cleanEmail, mode: 'insensitive' } },
+            { email: { equals: phoneEmail, mode: 'insensitive' } },
+            { phone: cleanEmail }
+          ]
+        },
+        include: { parent: { include: { user: true } } }
+      });
+      if (playerByPhone && playerByPhone.parent && playerByPhone.parent.user) {
+        user = playerByPhone.parent.user;
+      }
+    }
+
+    let isPasswordValid = false;
+    if (user) {
+      if (cleanPassword === user.password || bcrypt.compareSync(cleanPassword, user.password)) {
+        isPasswordValid = true;
+      } else if (user.encryptedPassword && isVaultEnabled) {
+        try {
+          const dec = decryptPassword(user.encryptedPassword);
+          if (dec === cleanPassword) isPasswordValid = true;
+        } catch(e) {}
+      } else if (user.role === 'ADMIN' && (
         cleanPassword === 'Ghadir@2026!' ||
         cleanPassword === 'Ghadir@2026' ||
         cleanPassword === '!Ghadir@2026' ||
         cleanPassword === 'admin' ||
         cleanPassword === 'admin123'
-      ))
-    );
+      )) {
+        isPasswordValid = true;
+      }
+    }
 
     if (user && isPasswordValid) {
       const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
