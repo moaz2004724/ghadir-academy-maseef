@@ -1164,18 +1164,18 @@ const fixUserRolesOnBoot = async () => {
 
 const seedSportsAndTrainings = async () => {
   try {
-    console.log("Seeding and updating sports/groups and their training days...");
+    console.log("Seeding and updating sports/groups and their training days for فرع المصيف...");
 
-    // 1. Group list to ensure
+    // 1. Group list to ensure for فرع المصيف
     const targetGroups = [
-      { id: 'g-football-juniors', name: 'كرة القدم - الصغار (5-10 سنوات)', color: '#16A34A', price8: 250, price12: 350, price16: 450 },
-      { id: 'g-football-seniors', name: 'كرة القدم - الكبار (11-16 سنة)', color: '#15803D', price8: 250, price12: 350, price16: 450 },
-      { id: 'g-swimming-boys', name: 'سباحة - بنين', color: '#0284C7', price8: 300, price12: 400, price16: 500 },
-      { id: 'g-swimming-girls', name: 'سباحة - بنات', color: '#0369A1', price8: 300, price12: 400, price16: 500 },
-      { id: 'g-gymnastics', name: 'الجمباز', color: '#9333EA', price8: 250, price12: 350, price16: 450 },
-      { id: 'g-karate', name: 'الكاراتيه', color: '#DC2626', price8: 250, price12: 350, price16: 450 },
-      { id: 'g-basketball', name: 'كرة السلة', color: '#EA580C', price8: 250, price12: 350, price16: 450 },
-      { id: 'g-boxing', name: 'البوكسينج', color: '#4B5563', price8: 250, price12: 350, price16: 450 }
+      { id: 'g-football-juniors', name: 'كرة القدم صغار (من 5 إلى 10 سنوات)', color: '#16A34A', price8: 250, price12: 350, price16: 450 },
+      { id: 'g-football-seniors', name: 'كرة القدم كبار بنين', color: '#15803D', price8: 250, price12: 350, price16: 450 },
+      { id: 'g-swimming-men', name: 'سباحة مدربين (رجال)', color: '#0284C7', price8: 300, price12: 400, price16: 500 },
+      { id: 'g-swimming-women', name: 'سباحة مدربات (نساء)', color: '#DB2777', price8: 300, price12: 400, price16: 500 },
+      { id: 'g-gymnastics', name: 'جمباز', color: '#EA580C', price8: 250, price12: 350, price16: 450 },
+      { id: 'g-taekwondo', name: 'تايكوندو', color: '#7C3AED', price8: 250, price12: 350, price16: 450 },
+      { id: 'g-basketball-girls', name: 'كرة سلة بنات', color: '#D97706', price8: 250, price12: 350, price16: 450 },
+      { id: 'g-basketball-boys', name: 'كرة سلة بنين', color: '#B45309', price8: 250, price12: 350, price16: 450 }
     ];
 
     // Ensure all target groups exist in database
@@ -1200,64 +1200,30 @@ const seedSportsAndTrainings = async () => {
       });
     }
 
-    // 2. Migrate existing players from old groups if they exist
-    const oldFootballGroups = await prisma.group.findMany({
-      where: {
-        OR: [
-          { id: 'g-football' },
-          { name: 'كرة القدم' }
-        ]
+    // 2. Remove obsolete groups and clean up references
+    const obsoleteGroupIds = ['g-football', 'g-swimming', 'g-karate', 'g-boxing', 'g-basketball', 'g-swimming-boys', 'g-swimming-girls'];
+    for (const oldId of obsoleteGroupIds) {
+      try {
+        await prisma.attendance.deleteMany({ where: { groupId: oldId } });
+        await prisma.training.deleteMany({ where: { groupId: oldId } });
+        await prisma.coach.updateMany({ where: { groupId: oldId }, data: { groupId: null } });
+        await prisma.player.updateMany({ where: { groupId: oldId }, data: { groupId: 'g-football-juniors' } });
+        await prisma.group.deleteMany({ where: { id: oldId } });
+      } catch(e) {
+        // Group might not exist
       }
-    });
-    for (const fg of oldFootballGroups) {
-      const pList = await prisma.player.findMany({ where: { groupId: fg.id } });
-      for (const p of pList) {
-        const targetGroupId = (p.age && p.age <= 10) ? 'g-football-juniors' : 'g-football-seniors';
-        console.log(`Migrating football player ${p.name} (age ${p.age}) to ${targetGroupId}`);
-        await prisma.player.update({
-          where: { id: p.id },
-          data: { groupId: targetGroupId }
-        });
-      }
-      await prisma.attendance.deleteMany({ where: { groupId: fg.id } });
-      await prisma.coach.updateMany({ where: { groupId: fg.id }, data: { groupId: null } });
-      await prisma.training.deleteMany({ where: { groupId: fg.id } });
-      await prisma.group.deleteMany({ where: { id: fg.id } });
     }
 
-    const oldSwimmingGroups = await prisma.group.findMany({
-      where: {
-        OR: [
-          { id: 'g-swimming' },
-          { name: 'السباحة' }
-        ]
-      }
-    });
-    for (const sg of oldSwimmingGroups) {
-      const pList = await prisma.player.findMany({ where: { groupId: sg.id } });
-      for (const p of pList) {
-        console.log(`Migrating swimming player ${p.name} to g-swimming-boys`);
-        await prisma.player.update({
-          where: { id: p.id },
-          data: { groupId: 'g-swimming-boys' }
-        });
-      }
-      await prisma.attendance.deleteMany({ where: { groupId: sg.id } });
-      await prisma.coach.updateMany({ where: { groupId: sg.id }, data: { groupId: null } });
-      await prisma.training.deleteMany({ where: { groupId: sg.id } });
-      await prisma.group.deleteMany({ where: { id: sg.id } });
-    }
-
-    // 3. Ensure training schedules are seeded correctly
+    // 3. Ensure training schedules are seeded correctly without hardcoded time
     const targetTrainings = [
-      { id: 't-football-juniors', groupId: 'g-football-juniors', days: ["السبت", "الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس"], time: "17:00", duration: 90, field: "ملعب A" },
-      { id: 't-football-seniors', groupId: 'g-football-seniors', days: ["السبت", "الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس"], time: "18:30", duration: 90, field: "ملعب A" },
-      { id: 't-swimming-boys', groupId: 'g-swimming-boys', days: ["السبت", "الاثنين", "الأربعاء"], time: "16:00", duration: 60, field: "المسبح" },
-      { id: 't-swimming-girls', groupId: 'g-swimming-girls', days: ["الأحد", "الثلاثاء", "الخميس"], time: "17:30", duration: 60, field: "المسبح" },
-      { id: 't-gymnastics', groupId: 'g-gymnastics', days: ["الأحد", "الاثنين", "الثلاثاء"], time: "16:00", duration: 60, field: "صالة الجمباز" },
-      { id: 't-karate', groupId: 'g-karate', days: ["الأحد", "الثلاثاء", "الخميس"], time: "18:00", duration: 60, field: "صالة الدفاع عن النفس" },
-      { id: 't-basketball', groupId: 'g-basketball', days: ["الأحد", "الثلاثاء", "الأربعاء"], time: "17:00", duration: 60, field: "الملعب الداخلي" },
-      { id: 't-boxing', groupId: 'g-boxing', days: ["السبت", "الاثنين", "الأربعاء"], time: "18:00", duration: 60, field: "صالة البوكسينج" }
+      { id: 't-football-juniors', groupId: 'g-football-juniors', days: ["الخميس", "الجمعة", "السبت", "الثلاثاء"], time: "", duration: 90, field: "ملعب كرة القدم", title: "تمرين كرة القدم صغار" },
+      { id: 't-football-seniors', groupId: 'g-football-seniors', days: ["الخميس", "الجمعة", "السبت", "الثلاثاء"], time: "", duration: 90, field: "ملعب كرة القدم", title: "تمرين كرة القدم كبار بنين" },
+      { id: 't-swimming-men', groupId: 'g-swimming-men', days: ["الخميس", "الجمعة", "السبت", "الثلاثاء"], time: "", duration: 60, field: "المسبح", title: "تمرين سباحة مدربين (رجال)" },
+      { id: 't-swimming-women', groupId: 'g-swimming-women', days: ["الجمعة", "السبت", "الثلاثاء"], time: "", duration: 60, field: "المسبح", title: "تمرين سباحة مدربات (نساء)" },
+      { id: 't-gymnastics', groupId: 'g-gymnastics', days: ["الخميس", "السبت", "الثلاثاء"], time: "", duration: 60, field: "صالة الجمباز", title: "تمرين جمباز" },
+      { id: 't-taekwondo', groupId: 'g-taekwondo', days: ["الخميس", "الجمعة", "السبت", "الثلاثاء"], time: "", duration: 60, field: "صالة الدفاع عن النفس", title: "تمرين تايكوندو" },
+      { id: 't-basketball-girls', groupId: 'g-basketball-girls', days: ["الخميس", "الجمعة", "السبت", "الثلاثاء"], time: "", duration: 60, field: "ملعب كرة السلة", title: "تمرين كرة سلة بنات" },
+      { id: 't-basketball-boys', groupId: 'g-basketball-boys', days: ["الخميس", "الجمعة", "السبت", "الثلاثاء"], time: "", duration: 60, field: "ملعب كرة السلة", title: "تمرين كرة سلة بنين" }
     ];
 
     let defaultCoach = await prisma.coach.findFirst();
@@ -1265,7 +1231,7 @@ const seedSportsAndTrainings = async () => {
       const defaultUser = await prisma.user.upsert({
         where: { email: 'coach@ghadirsports.sa' },
         update: { role: 'COACH', name: 'الكابتن أحمد علي' },
-        create: { email: 'coach@ghadirsports.sa', password: bcrypt.hashSync('Ghadir@2026', 10), role: 'COACH', name: 'الكابتن أحمد علي' }
+        create: { email: 'coach@ghadirsports.sa', password: bcrypt.hashSync('Ghadir@2026!', 10), role: 'COACH', name: 'الكابتن أحمد علي' }
       });
       defaultCoach = await prisma.coach.upsert({
         where: { userId: defaultUser.id },
@@ -1282,6 +1248,7 @@ const seedSportsAndTrainings = async () => {
           time: tt.time,
           duration: tt.duration,
           field: tt.field,
+          title: tt.title,
           isRecurring: true,
           type: 'training',
           group: { connect: { id: tt.groupId } },
@@ -1293,6 +1260,7 @@ const seedSportsAndTrainings = async () => {
           time: tt.time,
           duration: tt.duration,
           field: tt.field,
+          title: tt.title,
           isRecurring: true,
           type: 'training',
           group: { connect: { id: tt.groupId } },
@@ -1301,7 +1269,7 @@ const seedSportsAndTrainings = async () => {
       });
     }
 
-    console.log("Sports and default training days successfully initialized.");
+    console.log("Sports and default training days for فرع المصيف successfully initialized.");
   } catch (err) {
     console.error("Seeding default sports and trainings failed:", err);
   }
