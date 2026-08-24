@@ -512,7 +512,7 @@ app.post('/api/players', authenticateToken, requireRole(['ADMIN', 'SUPER_ADMIN']
         where: {
           OR: [
             { email: { equals: email, mode: 'insensitive' } },
-            ...(phone ? [{ phone: phone }, { parentProfile: { phone: phone } }] : [])
+            ...(phone ? [{ phone: phone }] : [])
           ]
         },
         include: { parentProfile: true }
@@ -563,17 +563,11 @@ app.post('/api/players', authenticateToken, requireRole(['ADMIN', 'SUPER_ADMIN']
     if (!targetParent) {
       targetParent = await prisma.parent.create({
         data: {
-          userId: targetUser.id,
-          phone: phone || undefined
+          userId: targetUser.id
         }
       });
     } else {
-      targetParent = await prisma.parent.update({
-        where: { id: targetParent.id },
-        data: {
-          phone: phone || targetParent.phone
-        }
-      });
+      // Parent exists, no update needed (Parent model only has id and userId)
     }
 
     resolvedParentId = targetParent.id;
