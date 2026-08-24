@@ -2325,7 +2325,7 @@ function AdminPortal({ user, onLogout, groups, setGroups, coaches, setCoaches, p
       {tab === "teams"     && <AdminTeams groups={groups} setGroups={setGroups} coaches={coaches} players={players} t={t} />}
       {tab === "attendance" && <AdminAttendance groups={groups} players={players} coaches={coaches} attendance={attendance} setAttendance={setAttendance} coachesAttendance={coachesAttendance} setCoachesAttendance={setCoachesAttendance} t={t} payments={payments} trainings={trainings} />}
       {tab === "coaches"   && <AdminCoaches coaches={coaches} setCoaches={setCoaches} groups={groups} players={players} payments={payments} t={t} />}
-      {tab === "players"   && <AdminPlayers players={players} setPlayers={setPlayers} groups={groups} parents={parents} evals={evals} coaches={coaches} t={t} trainings={trainings} attendance={attendance} payments={payments} selectedPlayerId={selectedPlayerId} setSelectedPlayerId={setSelectedPlayerId} />}
+      {tab === "players"   && <AdminPlayers players={players} setPlayers={setPlayers} groups={groups} parents={parents} setParents={setParents} evals={evals} coaches={coaches} t={t} trainings={trainings} attendance={attendance} payments={payments} selectedPlayerId={selectedPlayerId} setSelectedPlayerId={setSelectedPlayerId} />}
       {tab === "payments"  && <AdminPayments payments={payments} setPayments={setPayments} players={players} coaches={coaches} parents={parents} prices={prices} t={t} attendance={attendance} setAttendance={setAttendance} trainings={trainings} groups={groups} />}
       {tab === "prices"    && <AdminPrices prices={prices} setPrices={setPrices} t={t} groups={groups} setGroups={setGroups} />}
       {tab === "schedule"  && <AdminTrainings trainings={trainings} setTrainings={setTrainings} groups={groups} coaches={coaches} t={t} />}
@@ -3535,7 +3535,7 @@ function AdminCoaches({ coaches, setCoaches, groups, players, payments, t }) {
 }
 
 /* ── Admin Players ──────────────────────────────────── */
-function AdminPlayers({ players, setPlayers, groups, parents, evals, coaches, t, trainings, attendance, payments, selectedPlayerId, setSelectedPlayerId }) {
+function AdminPlayers({ players, setPlayers, groups, parents, setParents, evals, coaches, t, trainings, attendance, payments, selectedPlayerId, setSelectedPlayerId }) {
   const [sel, setSel]   = useState(selectedPlayerId || null);
   const [modal, setModal] = useState(false);
   const [freezeModal, setFreezeModal] = useState(null);
@@ -3907,6 +3907,9 @@ function AdminPlayers({ players, setPlayers, groups, parents, evals, coaches, t,
                   }
                 }
                 setPlayers(ps => ps.map(x => x.id === form.id ? { ...form } : x));
+                if (setParents && form.parentId) {
+                  setParents(pars => pars.map(par => String(par.id) === String(form.parentId) ? { ...par, email: form.email || par.email, password: form.password || par.password, phone: form.phone || par.phone } : par));
+                }
                 setModal(null);
               }} style={{ flex: 1 }}><span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><AnimIcon type="save" size={14} color="currentColor" /> حفظ</span></Btn>
               <Btn variant="secondary" onClick={() => setModal(null)}>إلغاء</Btn>
@@ -4144,7 +4147,7 @@ function AdminPlayers({ players, setPlayers, groups, parents, evals, coaches, t,
                 : `par_${phone}`;
               const generatedEmail = `ghadir_${phone}@ghadirsports.sa`;
               const generatedPass  = `ghadir_${phone.slice(-4)}`;
-              setPlayers(ps => [...ps, { 
+              const newPlayer = { 
                 ...form, 
                 id: `p${Date.now()}`, 
                 parentId: resolvedParentId,
@@ -4155,7 +4158,17 @@ function AdminPlayers({ players, setPlayers, groups, parents, evals, coaches, t,
                 goals: 0, 
                 assists: 0, 
                 joinDate: getLocalDateString(new Date()) 
-              }]); 
+              };
+              setPlayers(ps => [...ps, newPlayer]); 
+              if (setParents) {
+                setParents(pars => {
+                  const exists = pars.find(par => String(par.id) === String(resolvedParentId));
+                  if (!exists) {
+                    return [...pars, { id: resolvedParentId, name: `ولي أمر ${form.name}`, phone, email: generatedEmail, password: generatedPass }];
+                  }
+                  return pars;
+                });
+              }
               setModal(null); 
             }} style={{ flex: 1 }}><span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><AnimIcon type="check" size={14} color="currentColor" /> إضافة وتوليد بيانات الدخول</span></Btn>
             <Btn variant="secondary" onClick={() => setModal(null)}>إلغاء</Btn>

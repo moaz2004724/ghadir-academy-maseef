@@ -489,52 +489,89 @@ app.post('/api/players', authenticateToken, requireRole(['ADMIN', 'SUPER_ADMIN']
   try {
     let resolvedParentId = p.parentId;
 
-    // Check if the incoming parentId already exists in the Parent table
-    const existingParent = p.parentId
-      ? await prisma.parent.findUnique({ where: { id: p.parentId } })
-      : null;
+    const email = (p.email || `ghadir_${p.phone || Date.now()}@ghadirsports.sa`).trim().toLowerCase();
+    const phone = (p.phone || '').trim();
+    const password = (p.password || (phone ? `ghadir_${phone.slice(-4)}` : '123456')).trim();
+    const hashedPassword = bcrypt.hashSync(password, 10);
+    const encrypted = encryptPassword(password);
+    const parentName = p.parentName || `ولي أمر ${p.name}`;
 
-    if (!existingParent) {
-      // Parent doesn't exist yet — create User + Parent from player's email/phone
-      const email = p.email || `ghadir_${p.phone || Date.now()}@ghadirsports.sa`;
-      const password = p.password || `ghadir_${(p.phone || '0000').slice(-4)}`;
-      const hashedPassword = bcrypt.hashSync(password, 10);
-      const encrypted = encryptPassword(password);
-      const parentName = `ولي أمر ${p.name}`;
+    // 1. Find existing parent/user by parentId, email, or phone
+    let targetParent = null;
+    let targetUser = null;
 
-      const user = await prisma.user.upsert({
-        where: { email },
-        update: { password: hashedPassword, encryptedPassword: encrypted, name: parentName },
-        create: { email, password: hashedPassword, encryptedPassword: encrypted, name: parentName, role: 'PARENT' }
+    if (p.parentId) {
+      targetParent = await prisma.parent.findFirst({
+        where: {
+          OR: [
+            { id: p.parentId },
+            { userId: p.parentId }
+          ]
+        },
+        include: { user: true }
       });
-
-      const parent = await prisma.parent.upsert({
-        where: { userId: user.id },
-        update: {},
-        create: { userId: user.id }
-      });
-
-      resolvedParentId = parent.id;
-    } else {
-      // Parent exists — update User details if provided
-      const updateData = {};
-      if (p.email) updateData.email = p.email;
-      if (p.password) {
-        const isBcrypt = p.password.startsWith('$2a$') || p.password.startsWith('$2b$');
-        updateData.password = isBcrypt 
-          ? p.password 
-          : bcrypt.hashSync(p.password, 10);
-        if (!isBcrypt) {
-          updateData.encryptedPassword = encryptPassword(p.password);
-        }
+      if (targetParent && targetParent.user) {
+        targetUser = targetParent.user;
       }
-      updateData.name = `ولي أمر ${p.name}`;
+    }
 
-      await prisma.user.update({
-        where: { id: existingParent.userId },
-        data: updateData
+    if (!targetUser) {
+      targetUser = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { email: { equals: email, mode: 'insensitive' } },
+            ...(phone ? [{ parentProfile: { phone: phone } }] : [])
+          ]
+        },
+        include: { parentProfile: true }
+      });
+      if (targetUser && targetUser.parentProfile) {
+        targetParent = targetUser.parentProfile;
+      }
+    }
+
+    // 2. Create or Update User
+    if (targetUser) {
+      targetUser = await prisma.user.update({
+        where: { id: targetUser.id },
+        data: {
+          email,
+          password: hashedPassword,
+          encryptedPassword: encrypted,
+          name: parentName
+        }
+      });
+    } else {
+      targetUser = await prisma.user.create({
+        data: {
+          email,
+          password: hashedPassword,
+          encryptedPassword: encrypted,
+          name: parentName,
+          role: 'PARENT'
+        }
       });
     }
+
+    // 3. Create or Update Parent profile
+    if (!targetParent) {
+      targetParent = await prisma.parent.create({
+        data: {
+          userId: targetUser.id,
+          phone: phone || undefined
+        }
+      });
+    } else {
+      targetParent = await prisma.parent.update({
+        where: { id: targetParent.id },
+        data: {
+          userId: targetUser.id,
+          phone: phone || undefined
+        }
+      });
+    }
+
+    resolvedParentId = targetParent.id;
 
     // Parse numbers safely to prevent Prisma constraint violations
     const resolvedAge = (p.age && !isNaN(p.age) && +p.age > 0) ? parseInt(p.age) : 10;
