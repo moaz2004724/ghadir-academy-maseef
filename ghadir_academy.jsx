@@ -49,7 +49,7 @@ function PasswordReveal({ userId, fallbackPassword, t }) {
 
     setLoading(true);
     try {
-      const savedToken = sessionStorage.getItem('ghadir_token');
+      const savedToken = localStorage.getItem('ghadir_token');
       if (API_URL) {
         const res = await fetch(`${API_URL}/api/reveal-password`, {
           method: 'POST',
@@ -1412,13 +1412,13 @@ function LoginPage({ onLogin, players = [], coaches = [], parents = [], t }) {
       }
 
       if (loggedInUser && token) {
-        sessionStorage.setItem('ghadir_token', token);
+        localStorage.setItem('ghadir_token', token);
         onLogin(loggedInUser, token);
       } else {
         // 1. Admin login fallback
         const isAdminPass = cleanP === "Ghadir@2026!" || cleanP === "Ghadir@2026" || cleanP === "!Ghadir@2026" || cleanP === "Dev@2026" || cleanP === "admin" || cleanP === "admin123";
         if ((cleanE === "admin@ghadirsports.sa" || cleanE === "dev@ghadirsports.sa" || cleanE === "admin") && isAdminPass) {
-          sessionStorage.setItem('ghadir_token', 'local-admin-token');
+          localStorage.setItem('ghadir_token', 'local-admin-token');
           onLogin({ id: "admin", email: "admin@ghadirsports.sa", role: "admin", name: "مدير الأكاديمية" }, 'local-admin-token');
           setLoading(false);
           return;
@@ -1435,7 +1435,7 @@ function LoginPage({ onLogin, players = [], coaches = [], parents = [], t }) {
           const defaultCoachPass = `ghadir_${(matchedCoach.phone || "0000").slice(-4)}`;
           const isCoachPassValid = cleanP === matchedCoach.password || cleanP === defaultCoachPass || cleanP === "123456" || cleanP === "123456789" || cleanP === "Ghadir@2026!";
           if (isCoachPassValid) {
-            sessionStorage.setItem('ghadir_token', 'local-coach-token');
+            localStorage.setItem('ghadir_token', 'local-coach-token');
             onLogin({ ...matchedCoach, role: "coach" }, 'local-coach-token');
             setLoading(false);
             return;
@@ -1466,7 +1466,7 @@ function LoginPage({ onLogin, players = [], coaches = [], parents = [], t }) {
           const isParentPassValid = cleanP === pRef.password || cleanP === parRef.password || cleanP === defaultPass || cleanP === "123456" || cleanP === "123456789";
 
           if (isParentPassValid) {
-            sessionStorage.setItem('ghadir_token', 'local-parent-token');
+            localStorage.setItem('ghadir_token', 'local-parent-token');
             onLogin({
               id: parRef.id || pRef.parentId || `par_${phone}`,
               email: parRef.email || pRef.email || cleanE,
@@ -1484,7 +1484,7 @@ function LoginPage({ onLogin, players = [], coaches = [], parents = [], t }) {
         if (cleanE.startsWith("ghadir_") && (cleanP.startsWith("ghadir_") || cleanP === "123456" || cleanP === "123456789")) {
           const extractedDigits = cleanE.replace(/[^0-9]/g, '');
           if (extractedDigits.length >= 4) {
-            sessionStorage.setItem('ghadir_token', 'local-parent-token');
+            localStorage.setItem('ghadir_token', 'local-parent-token');
             onLogin({
               id: `par_${extractedDigits}`,
               email: cleanE,
@@ -1734,7 +1734,7 @@ function Shell({ title, subtitle, color, icon, tabs, activeTab, setActiveTab, on
 
 /* ═══ ROOT APP ════════════════════════════════════════ */
 export default function App() {
-  const [token, setToken] = useState(() => sessionStorage.getItem('ghadir_token') || "");
+  const [token, setToken] = useState(() => localStorage.getItem('ghadir_token') || "");
   const [user, setUser]         = useState(() => {
     const saved = localStorage.getItem('ghadir_logged_user');
     if (!saved) return null;
@@ -1850,7 +1850,7 @@ export default function App() {
       const path = endpointMap[table] || table;
       let url = `${API_URL}/api/${path}`;
       let method = 'POST';
-      const savedToken = token || sessionStorage.getItem('ghadir_token');
+      const savedToken = token || localStorage.getItem('ghadir_token');
       let headers = { 
         'Content-Type': 'application/json',
         ...(savedToken ? { 'Authorization': `Bearer ${savedToken}` } : {})
@@ -1889,7 +1889,7 @@ export default function App() {
       localStorage.setItem('ghadir_logged_user', JSON.stringify(user));
     } else {
       localStorage.removeItem('ghadir_logged_user');
-      sessionStorage.removeItem('ghadir_token');
+      localStorage.removeItem('ghadir_token');
       setToken("");
     }
   }, [user]);
@@ -1971,12 +1971,21 @@ export default function App() {
         return;
       }
       try {
-        const savedToken = token || sessionStorage.getItem('ghadir_token');
+        const savedToken = token || localStorage.getItem('ghadir_token');
         const res = await fetch(`${API_URL}/api/initial-data`, {
           headers: {
             ...(savedToken ? { 'Authorization': `Bearer ${savedToken}` } : {})
           }
         });
+        if (res.status === 401) {
+          // Token expired or invalid - force re-login
+          console.warn("Token expired, forcing re-login");
+          localStorage.removeItem('ghadir_logged_user');
+          localStorage.removeItem('ghadir_token');
+          setToken("");
+          setUser(null);
+          return;
+        }
         if (!res.ok) {
           console.error("API Fetch Error: status", res.status);
           return;
@@ -2297,7 +2306,7 @@ export default function App() {
   const handleLogout = () => {
     // Clear user session
     localStorage.removeItem('ghadir_logged_user');
-    sessionStorage.removeItem('ghadir_token');
+    localStorage.removeItem('ghadir_token');
     // Clear ALL cached data so next login starts fresh from server
     localStorage.removeItem('ghadir_players');
     localStorage.removeItem('ghadir_coaches');
@@ -2439,7 +2448,7 @@ function AdminOverview({ players, coaches, groups, payments, attendance = [], tr
     };
 
     if (API_URL) {
-      const savedToken = sessionStorage.getItem('ghadir_token');
+      const savedToken = localStorage.getItem('ghadir_token');
       fetch(`${API_URL}/api/messages`, {
         method: 'POST',
         headers: { 
@@ -3652,7 +3661,7 @@ function AdminPlayers({ players = [], setPlayers = () => {}, groups = [], parent
       freezeRanges: JSON.stringify(ranges)
     };
 
-    const savedToken = sessionStorage.getItem('ghadir_token');
+    const savedToken = localStorage.getItem('ghadir_token');
     fetch(`${API_URL}/api/players`, {
       method: "POST",
       headers: { 
@@ -5111,7 +5120,7 @@ function AdminPrices({ prices, setPrices, t, groups, setGroups }) {
 
     setIsResetting(true);
     try {
-      const savedToken = sessionStorage.getItem('ghadir_token');
+      const savedToken = localStorage.getItem('ghadir_token');
       const res = await fetch(`${API_URL}/api/reset-database`, {
         method: "POST",
         headers: { 
@@ -7739,7 +7748,7 @@ function Messaging({ messages, setMessages, meId, meName, coaches, parents, t, r
     });
 
     if (API_URL) {
-      const savedToken = sessionStorage.getItem('ghadir_token');
+      const savedToken = localStorage.getItem('ghadir_token');
       newMsgs.forEach(m => {
         fetch(`${API_URL}/api/messages`, {
           method: 'POST',
@@ -7777,7 +7786,7 @@ function Messaging({ messages, setMessages, meId, meName, coaches, parents, t, r
     };
 
     if (API_URL) {
-      const savedToken = sessionStorage.getItem('ghadir_token');
+      const savedToken = localStorage.getItem('ghadir_token');
       fetch(`${API_URL}/api/messages`, {
         method: 'POST',
         headers: { 
