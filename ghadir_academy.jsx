@@ -247,265 +247,292 @@ const getGroupScheduledDates = (groupId, trainings, daysBack = 45, daysForward =
 };
 
 const getPlayerSubscriptionDetails = (player, trainings, attendance, payments) => {
-  const joinDate = player ? (player.joinDate || getLocalDateString(new Date())) : "";
-  if (!player || !player.groupId || !joinDate) {
-    return {
-      cycleSessions: [],
-      attendedCount: 0,
-      absentCount: 0,
-      excusedCount: 0,
-      remainingCount: 0,
-      cycleIndex: 1,
-      isUnpaid: false,
-      isExpired: false,
-      isActive: false
-    };
-  }
-
-  const playerSubPays = (payments || []).filter(pay => String(pay.playerId) === String(player.id) && pay.type === "subscription");
-  const P = playerSubPays.length;
-
-  if (P === 0) {
-    return {
-      cycleSessions: [],
-      attendedCount: 0,
-      absentCount: 0,
-      excusedCount: 0,
-      remainingCount: 0,
-      cycleIndex: 0,
-      isUnpaid: true,
-      isExpired: false,
-      isActive: false
-    };
-  }
-
-  const groupTrainings = (trainings || []).filter(tr => tr.groupId === player.groupId);
-  const groupAttendance = (attendance || []).filter(a => a.groupId === player.groupId);
-
-  if (groupTrainings.length === 0 && groupAttendance.length === 0) {
-    return {
-      cycleSessions: [],
-      attendedCount: 0,
-      absentCount: 0,
-      excusedCount: 0,
-      remainingCount: 0,
-      cycleIndex: 1,
-      isUnpaid: false,
-      isExpired: false,
-      isActive: false
-    };
-  }
-
-  const ARABIC_DAYS = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
-
-  let playerDays = null;
   try {
-    playerDays = player.trainingDays ? JSON.parse(player.trainingDays) : null;
-  } catch(e) {}
+    const joinDate = player ? (player.joinDate || getLocalDateString(new Date())) : "";
+    if (!player || !player.groupId || !joinDate) {
+      return {
+        cycleSessions: [],
+        attendedCount: 0,
+        absentCount: 0,
+        excusedCount: 0,
+        remainingCount: 0,
+        cycleIndex: 1,
+        isUnpaid: false,
+        isExpired: false,
+        isActive: false
+      };
+    }
 
-  const isGroupTrainingDay = (dateObj, dateStr) => {
-    const dayName = ARABIC_DAYS[dateObj.getDay()];
-    if (playerDays && Array.isArray(playerDays)) {
-      if (!playerDays.includes(dayName)) {
-        return false;
+    const playerSubPays = (payments || []).filter(pay => pay && String(pay.playerId) === String(player.id) && pay.type === "subscription");
+    const P = playerSubPays.length;
+
+    if (P === 0) {
+      return {
+        cycleSessions: [],
+        attendedCount: 0,
+        absentCount: 0,
+        excusedCount: 0,
+        remainingCount: 0,
+        cycleIndex: 0,
+        isUnpaid: true,
+        isExpired: false,
+        isActive: false
+      };
+    }
+
+    const groupTrainings = (trainings || []).filter(tr => tr && tr.groupId === player.groupId);
+    const groupAttendance = (attendance || []).filter(a => a && a.groupId === player.groupId);
+
+    if (groupTrainings.length === 0 && groupAttendance.length === 0) {
+      return {
+        cycleSessions: [],
+        attendedCount: 0,
+        absentCount: 0,
+        excusedCount: 0,
+        remainingCount: 0,
+        cycleIndex: 1,
+        isUnpaid: false,
+        isExpired: false,
+        isActive: true
+      };
+    }
+
+    const ARABIC_DAYS = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
+
+    let playerDays = null;
+    try {
+      playerDays = player.trainingDays ? JSON.parse(player.trainingDays) : null;
+    } catch(e) {}
+
+    const isGroupTrainingDay = (dateObj, dateStr) => {
+      if (!dateObj || isNaN(dateObj.getTime())) return false;
+      const dayName = ARABIC_DAYS[dateObj.getDay()];
+      if (playerDays && Array.isArray(playerDays)) {
+        if (!playerDays.includes(dayName)) {
+          return false;
+        }
+      }
+
+      if (groupAttendance.some(a => a && a.date && compareDates(a.date, dateStr))) {
+        return true;
+      }
+      
+      for (const tr of groupTrainings) {
+        if (!tr) continue;
+        if (tr.isRecurring === false || tr.isRecurring === undefined) {
+          if (tr.date && compareDates(tr.date, dateStr)) {
+            return true;
+          }
+        } else {
+          if (tr.days && Array.isArray(tr.days) && tr.days.includes(dayName)) {
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+
+    const sortedSubPays = [...playerSubPays].sort((a, b) => {
+      const da = toLocalDateStr(a?.date);
+      const db = toLocalDateStr(b?.date);
+      return da.localeCompare(db);
+    });
+
+    const cycles = [];
+    const todayStr = getLocalDateString(new Date());
+
+    for (let c = 1; c <= P; c++) {
+      const pay = sortedSubPays[c - 1];
+      if (!pay) continue;
+      let startDateStr = toLocalDateStr(pay.date) || todayStr;
+      
+      let limitDateStr = null;
+      if (c < P && sortedSubPays[c]) {
+        const nextPayDate = toLocalDateStr(sortedSubPays[c].date);
+        if (nextPayDate && nextPayDate > startDateStr) {
+          limitDateStr = nextPayDate;
+        }
+      }
+
+      const cycleDates = [];
+      
+      let ranges = [];
+      try {
+        ranges = player.freezeRanges ? JSON.parse(player.freezeRanges) : [];
+      } catch (e) {
+        ranges = [];
+      }
+
+      const parts = startDateStr.split("-");
+      let current = parts.length === 3 ? new Date(+parts[0], +parts[1] - 1, +parts[2]) : new Date();
+      if (isNaN(current.getTime())) current = new Date();
+      current.setHours(0, 0, 0, 0);
+
+      const baseSessions = pay.sessionsCount || 12;
+      let tempCurrent = new Date(current);
+      let temp12thDate = null;
+      let tempCount = 0;
+      let tempSafety = 0;
+      while (tempCount < baseSessions && tempSafety < 1000) {
+        tempSafety++;
+        const dStr = getLocalDateString(tempCurrent);
+        if (limitDateStr && dStr >= limitDateStr) break;
+        const inCompFreeze = ranges.some(r => r && r.start && r.end && dStr >= r.start && dStr <= r.end);
+        if (inCompFreeze) {
+          tempCurrent.setDate(tempCurrent.getDate() + 1);
+          continue;
+        }
+        const inActFreeze = ranges.some(r => r && r.start && !r.end && dStr >= r.start);
+        if (inActFreeze) break;
+        if (isGroupTrainingDay(tempCurrent, dStr)) {
+          tempCount++;
+          temp12thDate = dStr;
+        }
+        tempCurrent.setDate(tempCurrent.getDate() + 1);
+      }
+
+      const targetSessionCount = (c < P || (temp12thDate && temp12thDate < todayStr)) ? baseSessions : (baseSessions === 12 ? 13 : baseSessions);
+
+      let safety = 0;
+      while (cycleDates.length < targetSessionCount && safety < 1000) {
+        safety++;
+        const dateStr = getLocalDateString(current);
+        if (limitDateStr && dateStr >= limitDateStr) {
+          break;
+        }
+
+        const inCompletedFreeze = ranges.some(r => r && r.start && r.end && dateStr >= r.start && dateStr <= r.end);
+        if (inCompletedFreeze) {
+          current.setDate(current.getDate() + 1);
+          continue;
+        }
+
+        const inActiveFreeze = ranges.some(r => r && r.start && !r.end && dateStr >= r.start);
+        if (inActiveFreeze) {
+          while (cycleDates.length < targetSessionCount) {
+            cycleDates.push({ date: null, status: "مجمد" });
+          }
+          break;
+        }
+
+        if (isGroupTrainingDay(current, dateStr)) {
+          cycleDates.push(dateStr);
+        }
+        current.setDate(current.getDate() + 1);
+      }
+
+      cycles.push({
+        cycleIndex: c,
+        sessions: cycleDates
+      });
+    }
+
+    if (cycles.length === 0) {
+      return {
+        cycleSessions: [],
+        attendedCount: 0,
+        absentCount: 0,
+        excusedCount: 0,
+        remainingCount: 0,
+        cycleIndex: 1,
+        isUnpaid: false,
+        isExpired: false,
+        isActive: true
+      };
+    }
+
+    // Find the active cycle
+    let activeCycleIndex = Math.max(0, cycles.length - 1);
+    for (let i = 0; i < cycles.length; i++) {
+      const sessions = cycles[i]?.sessions || [];
+      const lastSessionVal = sessions[sessions.length - 1];
+      const lastSession = typeof lastSessionVal === "string" ? lastSessionVal : (lastSessionVal?.date || "");
+      if (lastSession && lastSession >= todayStr) {
+        activeCycleIndex = i;
+        break;
       }
     }
-
-    if (groupAttendance.some(a => compareDates(a.date, dateStr))) {
-      return true;
-    }
+    const currentCycle = cycles[activeCycleIndex] || cycles[0];
+    const sessions = currentCycle?.sessions || [];
+    const lastSessionVal = sessions[sessions.length - 1];
+    const lastSessionDate = typeof lastSessionVal === "string" ? lastSessionVal : (lastSessionVal?.date || "");
     
-    for (const tr of groupTrainings) {
-      if (tr.isRecurring === false || tr.isRecurring === undefined) {
-        if (tr.date && compareDates(tr.date, dateStr)) {
-          return true;
+    const isExpired = lastSessionDate ? lastSessionDate < todayStr : false;
+    
+    const cycleSessions = [];
+    sessions.forEach(sessionItem => {
+      if (sessionItem && typeof sessionItem === "object") {
+        cycleSessions.push({
+          date: null,
+          isFuture: false,
+          status: "مجمد"
+        });
+        return;
+      }
+
+      const dateStr = sessionItem;
+      const isFuture = dateStr > todayStr;
+      let status = "حاضر";
+      if (!isFuture) {
+        const record = (attendance || []).find(a => a && a.date && compareDates(a.date, dateStr) && a.groupId === player.groupId);
+        if (record && record.records) {
+          const playerRecKey = Object.keys(record.records).find(k => String(k) === String(player.id));
+          if (playerRecKey) {
+            status = record.records[playerRecKey];
+          }
         }
       } else {
-        if (tr.days && tr.days.includes(dayName)) {
-          return true;
-        }
-      }
-    }
-    return false;
-  };
-
-  const sortedSubPays = [...playerSubPays].sort((a, b) => {
-    const da = toLocalDateStr(a.date);
-    const db = toLocalDateStr(b.date);
-    return da.localeCompare(db);
-  });
-
-  const cycles = [];
-  const todayStr = getLocalDateString(new Date());
-
-  for (let c = 1; c <= P; c++) {
-    const pay = sortedSubPays[c - 1];
-    let startDateStr = toLocalDateStr(pay.date);
-    
-    let limitDateStr = null;
-    if (c < P) {
-      const nextPayDate = toLocalDateStr(sortedSubPays[c].date);
-      if (nextPayDate > startDateStr) {
-        limitDateStr = nextPayDate;
-      }
-    }
-
-    const cycleDates = [];
-    
-    let ranges = [];
-    try {
-      ranges = player.freezeRanges ? JSON.parse(player.freezeRanges) : [];
-    } catch (e) {
-      ranges = [];
-    }
-
-    const parts = startDateStr.split("-");
-    let current = new Date(parts[0], parts[1] - 1, parts[2]);
-    current.setHours(0, 0, 0, 0);
-
-    const baseSessions = pay.sessionsCount || 12;
-    let tempCurrent = new Date(current);
-    let temp12thDate = null;
-    let tempCount = 0;
-    let tempSafety = 0;
-    while (tempCount < baseSessions && tempSafety < 5000) {
-      tempSafety++;
-      const dStr = getLocalDateString(tempCurrent);
-      if (limitDateStr && dStr >= limitDateStr) break;
-      const inCompFreeze = ranges.some(r => r.start && r.end && dStr >= r.start && dStr <= r.end);
-      if (inCompFreeze) {
-        tempCurrent.setDate(tempCurrent.getDate() + 1);
-        continue;
-      }
-      const inActFreeze = ranges.some(r => r.start && !r.end && dStr >= r.start);
-      if (inActFreeze) break;
-      if (isGroupTrainingDay(tempCurrent, dStr)) {
-        tempCount++;
-        temp12thDate = dStr;
-      }
-      tempCurrent.setDate(tempCurrent.getDate() + 1);
-    }
-
-    const targetSessionCount = (c < P || (temp12thDate && temp12thDate < todayStr)) ? baseSessions : (baseSessions === 12 ? 13 : baseSessions);
-
-    let safety = 0;
-    while (cycleDates.length < targetSessionCount && safety < 5000) {
-      safety++;
-      const dateStr = getLocalDateString(current);
-      if (limitDateStr && dateStr >= limitDateStr) {
-        break;
+        status = "قادم";
       }
 
-      // Check if dateStr is in a completed freeze range
-      const inCompletedFreeze = ranges.some(r => r.start && r.end && dateStr >= r.start && dateStr <= r.end);
-      if (inCompletedFreeze) {
-        // Skip this date entirely, as if the training day didn't happen for this player
-        current.setDate(current.getDate() + 1);
-        continue;
-      }
-
-      // Check if dateStr is in an active freeze range
-      const inActiveFreeze = ranges.some(r => r.start && !r.end && dateStr >= r.start);
-      if (inActiveFreeze) {
-        // The player is currently frozen from this point on.
-        // We push placeholders for all remaining sessions.
-        while (cycleDates.length < targetSessionCount) {
-          cycleDates.push({ date: null, status: "مجمد" });
-        }
-        break;
-      }
-
-      if (isGroupTrainingDay(current, dateStr)) {
-        cycleDates.push(dateStr);
-      }
-      current.setDate(current.getDate() + 1);
-    }
-
-    cycles.push({
-      cycleIndex: c,
-      sessions: cycleDates
-    });
-  }
-
-  // Find the active cycle: the first one that has not expired yet (last session >= today)
-  let activeCycleIndex = P - 1;
-  for (let i = 0; i < P; i++) {
-    const sessions = cycles[i].sessions;
-    const lastSessionVal = sessions[sessions.length - 1];
-    const lastSession = typeof lastSessionVal === "string" ? lastSessionVal : (lastSessionVal?.date || "");
-    if (lastSession && lastSession >= todayStr) {
-      activeCycleIndex = i;
-      break;
-    }
-  }
-  const currentCycle = cycles[activeCycleIndex];
-  const lastSessionVal = currentCycle ? currentCycle.sessions[currentCycle.sessions.length - 1] : null;
-  const lastSessionDate = typeof lastSessionVal === "string" ? lastSessionVal : (lastSessionVal?.date || "");
-  
-  // A cycle is expired if its last session is already in the past (strictly < todayStr)
-  const isExpired = lastSessionDate ? lastSessionDate < todayStr : false;
-  
-  // Let's populate cycleSessions details for the active cycle
-  const cycleSessions = [];
-  currentCycle.sessions.forEach(sessionItem => {
-    if (sessionItem && typeof sessionItem === "object") {
       cycleSessions.push({
-        date: null,
-        isFuture: false,
-        status: "مجمد"
+        date: dateStr,
+        isFuture,
+        status
       });
-      return;
-    }
-
-    const dateStr = sessionItem;
-    const isFuture = dateStr > todayStr;
-    let status = "حاضر";
-    if (!isFuture) {
-      const record = (attendance || []).find(a => compareDates(a.date, dateStr) && a.groupId === player.groupId);
-      if (record && record.records) {
-        const playerRecKey = Object.keys(record.records).find(k => String(k) === String(player.id));
-        if (playerRecKey) {
-          status = record.records[playerRecKey];
-        }
-      }
-    } else {
-      status = "قادم";
-    }
-
-    cycleSessions.push({
-      date: dateStr,
-      isFuture,
-      status
     });
-  });
 
-  let attendedCount = 0;
-  let absentCount = 0;
-  let excusedCount = 0;
-  let remainingCount = 0;
+    let attendedCount = 0;
+    let absentCount = 0;
+    let excusedCount = 0;
+    let remainingCount = 0;
 
-  cycleSessions.forEach(s => {
-    if (s.isFuture) {
-      remainingCount++;
-    } else {
-      if (s.status === "حاضر") attendedCount++;
-      else if (s.status === "غائب") absentCount++;
-      else if (s.status === "بعذر") excusedCount++;
-    }
-  });
+    cycleSessions.forEach(s => {
+      if (s.isFuture) {
+        remainingCount++;
+      } else {
+        if (s.status === "حاضر") attendedCount++;
+        else if (s.status === "غائب") absentCount++;
+        else if (s.status === "بعذر") excusedCount++;
+      }
+    });
 
-  return {
-    cycleSessions,
-    attendedCount,
-    absentCount,
-    excusedCount,
-    remainingCount,
-    cycleIndex: activeCycleIndex + 1,
-    isUnpaid: false,
-    isExpired,
-    isActive: !isExpired
-  };
-}
+    return {
+      cycleSessions,
+      attendedCount,
+      absentCount,
+      excusedCount,
+      remainingCount,
+      cycleIndex: activeCycleIndex + 1,
+      isUnpaid: false,
+      isExpired,
+      isActive: !isExpired
+    };
+  } catch (err) {
+    console.error("getPlayerSubscriptionDetails error:", err);
+    return {
+      cycleSessions: [],
+      attendedCount: 0,
+      absentCount: 0,
+      excusedCount: 0,
+      remainingCount: 0,
+      cycleIndex: 1,
+      isUnpaid: false,
+      isExpired: false,
+      isActive: true
+    };
+  }
+};
 
 
 const GhadirLogo = ({ size = 48, variant = "main" }) => {
