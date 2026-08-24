@@ -3535,16 +3535,19 @@ function AdminCoaches({ coaches, setCoaches, groups, players, payments, t }) {
 }
 
 /* ── Admin Players ──────────────────────────────────── */
-function AdminPlayers({ players, setPlayers, groups, parents, setParents, evals, coaches, t, trainings, attendance, payments, selectedPlayerId, setSelectedPlayerId }) {
+function AdminPlayers({ players = [], setPlayers = () => {}, groups = [], parents = [], setParents = () => {}, evals = [], coaches = [], t, trainings = [], attendance = [], payments = [], selectedPlayerId = null, setSelectedPlayerId = () => {} }) {
   const [sel, setSel]   = useState(selectedPlayerId || null);
   const [modal, setModal] = useState(false);
   const [freezeModal, setFreezeModal] = useState(null);
   const [search, setSearch] = useState("");
   const [fg, setFg] = useState("الكل");
-  const emptyP = { name: "", age: "", groupId: groups[0]?.id || "", phone: "", position: "مهاجم", status: "نشط", score: 80, speed: 75, stamina: 75, technique: 75, teamwork: 75, goals: 0, assists: 0, attendancePct: 90, weight: "", height: "", parentId: "__new__", email: "", password: "", bus: "" };
+  const emptyP = { name: "", age: "", groupId: (groups && groups[0]?.id) || "", phone: "", position: "مهاجم", status: "نشط", score: 80, speed: 75, stamina: 75, technique: 75, teamwork: 75, goals: 0, assists: 0, attendancePct: 90, weight: "", height: "", parentId: "__new__", email: "", password: "", bus: "" };
   const [form, setForm] = useState(emptyP);
-  const filtered = players.filter(p => {
-    const matchesSearch = p.name.includes(search) || (groups.find(g => g.id === p.groupId)?.name || "").includes(search);
+  const filtered = (players || []).filter(p => {
+    if (!p) return false;
+    const pName = p.name || "";
+    const groupName = (groups || []).find(g => g && g.id === p.groupId)?.name || "";
+    const matchesSearch = pName.includes(search || "") || groupName.includes(search || "");
     const matchesGroup = fg === "الكل" || p.groupId === fg;
     return matchesSearch && matchesGroup;
   });
@@ -3634,8 +3637,8 @@ function AdminPlayers({ players, setPlayers, groups, parents, setParents, evals,
     const latestRenewalDate = sortedPays.length > 0 ? formatArabicDate(sortedPays[0].date) : "تجديد تلقائي عند التسجيل";
 
     const lastEval = (evals || []).filter(e => e.playerId === p.id).slice(-1)[0];
-    const g   = groups.find(x => x.id === p.groupId);
-    const par = parents.find(x => x.id === p.parentId);
+    const g   = (groups || []).find(x => x.id === p.groupId);
+    const par = (parents || []).find(x => String(x.id) === String(p.parentId));
     return (
       <div>
         <button onClick={() => { setSel(null); if (setSelectedPlayerId) setSelectedPlayerId(null); }} style={{ background: t.bg2, border: `1px solid ${t.border}`, color: t.textDim, borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 18, fontFamily: "'Cairo',sans-serif" }}>← رجوع</button>
@@ -6727,24 +6730,24 @@ function CoachPayments({ coachId, myPlayers, payments, setPayments, prices, coac
 /* ══════════════════════════════════════════════════════════
    PARENT PORTAL
 ══════════════════════════════════════════════════════════ */
-function ParentPortal({ user, onLogout, players, groups, coaches, parents, payments, attendance, evals, messages, setMessages, prices, trainings, t, syncStatus }) {
+function ParentPortal({ user, onLogout, players = [], groups = [], coaches = [], parents = [], payments = [], attendance = [], evals = [], messages = [], setMessages = () => {}, prices = {}, trainings = [], t, syncStatus }) {
   // 1. Identify the parent from the dynamic parents list or user
-  const userPhone = (user.phone || (user.email || "").replace(/[^0-9]/g, "")).trim();
-  const userEmail = (user.email || "").toLowerCase().trim();
-  const parent = parents.find(p => 
-    String(p.id) === String(user.id) || 
-    String(p.userId) === String(user.id) ||
+  const userPhone = (user?.phone || (user?.email || "").replace(/[^0-9]/g, "")).trim();
+  const userEmail = (user?.email || "").toLowerCase().trim();
+  const parent = (parents || []).find(p => 
+    String(p.id) === String(user?.id) || 
+    String(p.userId) === String(user?.id) ||
     (p.email && p.email.toLowerCase().trim() === userEmail) ||
     (userPhone && p.phone && p.phone.replace(/[^0-9]/g, "") === userPhone)
-  ) || { name: user.name, id: user.id };
+  ) || { name: user?.name, id: user?.id };
   
   // 2. Filter players for this parent using parentId, playerIds, email, or phone
-  const myPlayers = players.filter(p => {
+  const myPlayers = (players || []).filter(p => {
     if (!p) return false;
-    if (String(p.parentId) === String(user.id) || String(p.parentId) === String(parent.id) || (parent.userId && String(p.parentId) === String(parent.userId))) {
+    if (String(p.parentId) === String(user?.id) || String(p.parentId) === String(parent.id) || (parent.userId && String(p.parentId) === String(parent.userId))) {
       return true;
     }
-    if (user.playerIds && Array.isArray(user.playerIds) && user.playerIds.includes(p.id)) {
+    if (user?.playerIds && Array.isArray(user.playerIds) && user.playerIds.includes(p.id)) {
       return true;
     }
     if (userEmail && p.email && p.email.toLowerCase().trim() === userEmail) {
@@ -6765,14 +6768,14 @@ function ParentPortal({ user, onLogout, players, groups, coaches, parents, payme
     }
   }, [myPlayers, activeChild]);
   const [tab, setTab] = useState("overview");
-  const unread = messages.filter(m => m.to === user.id && !m.read).length;
+  const unread = (messages || []).filter(m => m.to === user?.id && !m.read).length;
   
   const child      = myPlayers.find(p => p.id === activeChild) || myPlayers[0];
-  const childGroup = child ? groups.find(g => g.id === child.groupId) : null;
-  const childCoach = childGroup ? coaches.find(c => c.id === childGroup.coachId) : null;
-  const childPays  = child ? payments.filter(p => String(p.playerId) === String(child.id)) : [];
-  const childAtt   = child ? attendance.filter(a => a.groupId === child.groupId) : [];
-  const childEvals = child ? evals.filter(e => e.playerId === child.id) : [];
+  const childGroup = child ? (groups || []).find(g => g.id === child.groupId) : null;
+  const childCoach = childGroup ? (coaches || []).find(c => c.id === childGroup.coachId) : null;
+  const childPays  = child ? (payments || []).filter(p => String(p.playerId) === String(child.id)) : [];
+  const childAtt   = child ? (attendance || []).filter(a => a.groupId === child.groupId) : [];
+  const childEvals = child ? (evals || []).filter(e => e.playerId === child.id) : [];
 
   // My coaches: find all unique coaches of my children
   const myCoachIds = [...new Set(myPlayers.map(p => {
@@ -7326,16 +7329,23 @@ function ParentAttendance({ child, childAtt, childPays, t }) {
   );
 }
 
-function ParentPayments({ child, childPays, prices, trainings, attendance, t, groups }) {
-  const total     = childPays.reduce((a, p) => a + p.amount - (p.discount || 0), 0);
-  const subDetails = getPlayerSubscriptionDetails(child, trainings, attendance, childPays);
-  const byType    = Object.entries(PAY_TYPES).map(([k, v]) => ({ k, ...v, paid: childPays.filter(p => p.type === k).reduce((a, p) => a + p.amount - (p.discount || 0), 0), count: childPays.filter(p => p.type === k).length }));
+function ParentPayments({ child, childPays = [], prices = {}, trainings = [], attendance = [], t, groups = [] }) {
+  if (!child) return <div style={{ textAlign: "center", color: t.textFaint, padding: 60 }}>لا يوجد بيانات لاعب محدد</div>;
+  const pays = childPays || [];
+  const total = pays.reduce((a, p) => a + (p.amount || 0) - (p.discount || 0), 0);
+  const subDetails = getPlayerSubscriptionDetails(child, trainings, attendance, pays);
+  const byType = Object.entries(PAY_TYPES).map(([k, v]) => ({ 
+    k, 
+    ...v, 
+    paid: pays.filter(p => p.type === k).reduce((a, p) => a + (p.amount || 0) - (p.discount || 0), 0), 
+    count: pays.filter(p => p.type === k).length 
+  }));
 
   const subStatus = subDetails.isUnpaid ? "غير مسدد" : subDetails.isExpired ? "منتهي" : "نشط";
   const subColor = subDetails.isUnpaid || subDetails.isExpired ? "#EF4444" : "#10B981";
 
-  const childGroup = (groups || []).find(g => g.id === child.groupId);
-  const subscriptionPrice = childGroup?.price !== undefined ? childGroup.price : (prices.subscription || 350);
+  const childGroup = (groups || []).find(g => g.id === child?.groupId);
+  const subscriptionPrice = childGroup?.price !== undefined ? childGroup.price : (prices?.subscription || 350);
 
   return (
     <div>
