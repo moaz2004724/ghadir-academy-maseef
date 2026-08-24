@@ -3981,9 +3981,9 @@ function AdminPlayers({ players = [], setPlayers = () => {}, groups = [], parent
 
       <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 18, alignItems: "center" }}>
         {/* فلاتر الأنشطة والرياضات في قائمة اللاعبين */}
-        {["الكل", ...groups.map(g => g.id)].map(id => (
+        {["الكل", ...(groups || []).map(g => g.id)].map(id => (
           <button key={id} onClick={() => setFg(id)} style={{ padding: "7px 13px", borderRadius: 8, border: "1px solid", borderColor: fg === id ? "#2563EB" : t.border, background: fg === id ? "rgba(37,99,235,.12)" : t.bg2, color: fg === id ? "#60A5FA" : t.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "'Cairo',sans-serif" }}>
-            {id === "الكل" ? "كل الألعاب" : groups.find(g => g.id === id)?.name}
+            {id === "الكل" ? "كل الألعاب" : (groups || []).find(g => g.id === id)?.name}
           </button>
         ))}
       </div>
@@ -3998,8 +3998,9 @@ function AdminPlayers({ players = [], setPlayers = () => {}, groups = [], parent
           </thead>
           <tbody>
             {filtered.map(p => {
-              const g = groups.find(x => x.id === p.groupId);
+              const g = (groups || []).find(x => x.id === p.groupId);
               const subDetails = getPlayerSubscriptionDetails(p, trainings, attendance, payments);
+              const cycleLength = (subDetails?.cycleSessions || []).length;
               return (
                 <tr key={p.id} className={t.name === "dark" ? "rh" : "rhl"} style={{ borderBottom: `1px solid ${t.border}`, transition: "background .15s", cursor: "pointer" }} onClick={() => setSel(p.id)}>
                   <td style={{ padding: "11px 14px" }}>
@@ -4021,9 +4022,9 @@ function AdminPlayers({ players = [], setPlayers = () => {}, groups = [], parent
                     {subDetails.isUnpaid ? (
                       <span style={{ fontSize: 11, fontWeight: 800, color: "#EF4444", background: "rgba(239,68,68,0.1)", padding: "3px 8px", borderRadius: 6 }}><span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><AnimIcon type="alert" size={11} color="#EF4444" /> غير مسدد</span></span>
                     ) : subDetails.isExpired ? (
-                      <span style={{ fontSize: 11, fontWeight: 800, color: "#F59E0B", background: "rgba(245,158,11,0.1)", padding: "3px 8px", borderRadius: 6 }}><span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><AnimIcon type="alert" size={11} color="#F59E0B" /> منتهي</span> ({subDetails.attendedCount} / {subDetails.cycleSessions.length})</span>
+                      <span style={{ fontSize: 11, fontWeight: 800, color: "#F59E0B", background: "rgba(245,158,11,0.1)", padding: "3px 8px", borderRadius: 6 }}><span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><AnimIcon type="alert" size={11} color="#F59E0B" /> منتهي</span> ({subDetails.attendedCount} / {cycleLength})</span>
                     ) : (
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "#10B981" }}>{subDetails.attendedCount} / {subDetails.cycleSessions.length}</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "#10B981" }}>{subDetails.attendedCount} / {cycleLength}</span>
                     )}
                   </td>
                   <td style={{ padding: "11px 14px" }}><Chip text={p.status} color={p.status === "نشط" ? "#10B981" : p.status === "مجمد" ? "#3B82F6" : "#EF4444"}/></td>
@@ -4046,7 +4047,7 @@ function AdminPlayers({ players = [], setPlayers = () => {}, groups = [], parent
             {[["الاسم الكامل", "name"], ["رقم الهاتف (للدخول)", "phone"], ["رقم الهوية الوطنية", "nationalId"]].map(([l, f]) => (
               <div key={f} style={{ flex: "1 1 calc(50% - 7px)" }}><Input label={l} value={form[f] || ""} onChange={v => setForm(x => ({ ...x, [f]: v }))} t={t}/></div>
             ))}
-            <div style={{ flex: "1 1 calc(50% - 7px)" }}><Input label="النشاط الرياضي / اللعبة" value={form.groupId} onChange={v => setForm(x => ({ ...x, groupId: v }))} options={groups.map(g => ({ v: g.id, l: g.name }))} t={t}/></div>
+            <div style={{ flex: "1 1 calc(50% - 7px)" }}><Input label="النشاط الرياضي / اللعبة" value={form.groupId} onChange={v => setForm(x => ({ ...x, groupId: v }))} options={(groups || []).map(g => ({ v: g.id, l: g.name }))} t={t}/></div>
             <div style={{ flex: "1 1 calc(50% - 7px)" }}><Input label="التصنيف / المركز / الحزام" value={form.position} onChange={v => setForm(x => ({ ...x, position: v }))} placeholder="مثال: مهاجم، حزام أسود، سباحة صدر" t={t}/></div>
             <div style={{ flex: "1 1 calc(50% - 7px)" }}><Input label="العمر" value={form.age} onChange={v => setForm(x => ({ ...x, age: +v }))} type="number" t={t}/></div>
             <div style={{ flex: "1 1 calc(50% - 7px)" }}><Input label="الطول (سم)" value={form.height} onChange={v => setForm(x => ({ ...x, height: +v }))} type="number" t={t}/></div>
@@ -4059,7 +4060,7 @@ function AdminPlayers({ players = [], setPlayers = () => {}, groups = [], parent
                 onChange={v => setForm(x => ({ ...x, parentId: v }))}
                 options={[
                   { v: "__new__", l: "إنشاء حساب جديد بناءً على رقم الهاتف" },
-                  ...parents.map(par => ({ v: par.id, l: par.name }))
+                  ...(parents || []).map(par => ({ v: par.id, l: par.name }))
                 ]}
                 t={t}
               />
