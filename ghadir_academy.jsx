@@ -2268,24 +2268,6 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
-    const hasObsolete = groups.some(g => g.name === "2012" || g.id === "2012" || g.id === "g1" || g.id === "g2" || g.id === "g3" || g.name === "الكاراتيه" || g.name === "البوكسينج" || g.id === "g-karate" || g.id === "g-boxing");
-    const isMissingAny = DEFAULT_SPORTS.some(ds => !groups.some(g => g.id === ds.id));
-    if (isMissingAny || hasObsolete) {
-      shared.setGroups(prev => {
-        const obsoleteGroupIds = ["g-football", "g-swimming", "g-karate", "g-boxing", "g-basketball", "g-swimming-boys", "g-swimming-girls", "g1", "g2", "g3", "2012"];
-        const filtered = prev.filter(x => !obsoleteGroupIds.includes(x.id) && x.name !== "2012" && x.name !== "كرة القدم" && x.name !== "السباحة" && x.name !== "الكاراتيه" && x.name !== "البوكسينج" && x.name !== "كرة السلة" && x.name !== "تحت 11" && x.name !== "تحت 13" && x.name !== "تحت 15");
-        const next = [...filtered];
-        DEFAULT_SPORTS.forEach(ds => {
-          if (!next.some(x => x.id === ds.id)) {
-            next.push(ds);
-          }
-        });
-        return next;
-      });
-    }
-  }, [groups]);
-
   return (
     <div style={{ fontFamily: "'Cairo',sans-serif", direction: "rtl", background: t.bg, minHeight: "100vh", color: t.text }}>
       <style>{`
