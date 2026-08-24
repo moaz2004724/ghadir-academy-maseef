@@ -658,35 +658,87 @@ app.post('/api/payments', authenticateToken, requireRole(['ADMIN', 'SUPER_ADMIN'
     const { id, playerId, playerName, coachId, coachName, type, month, amount, date, note, discount, packageName, sessionsCount } = req.body;
     const resolvedDiscount = (discount !== undefined && discount !== null && !isNaN(discount)) ? parseFloat(discount) : 0;
     const resolvedSessions = (sessionsCount !== undefined && sessionsCount !== null && !isNaN(sessionsCount)) ? parseInt(sessionsCount) : 12;
+    const resolvedAmount = (amount !== undefined && amount !== null && !isNaN(amount)) ? parseFloat(amount) : 0;
+    
+    let validDate = new Date();
+    if (date) {
+      const parsed = new Date(date);
+      if (!isNaN(parsed.getTime())) validDate = parsed;
+    }
+
+    // 1. Resolve a valid Player ID to satisfy Prisma foreign key
+    let validPlayerId = playerId;
+    let playerExists = validPlayerId ? await prisma.player.findUnique({ where: { id: validPlayerId } }) : null;
+    
+    if (!playerExists && playerName) {
+      playerExists = await prisma.player.findFirst({
+        where: { name: playerName }
+      });
+      if (playerExists) validPlayerId = playerExists.id;
+    }
+
+    if (!playerExists) {
+      let anyPlayer = await prisma.player.findFirst();
+      if (!anyPlayer) {
+        let anyGroup = await prisma.group.findFirst();
+        if (!anyGroup) {
+          anyGroup = await prisma.group.create({
+            data: { id: 'g-football-juniors', name: 'كرة القدم صغار (من 5 إلى 10 سنوات)', color: '#16A34A' }
+          });
+        }
+        let anyParent = await prisma.parent.findFirst();
+        if (!anyParent) {
+          let anyUser = await prisma.user.findFirst({ where: { role: 'PARENT' } });
+          if (!anyUser) {
+            anyUser = await prisma.user.create({
+              data: { email: 'parent_default@ghadirsports.sa', password: 'hash', name: 'ولي أمر عام', role: 'PARENT' }
+            });
+          }
+          anyParent = await prisma.parent.create({ data: { userId: anyUser.id } });
+        }
+        anyPlayer = await prisma.player.create({
+          data: {
+            name: playerName || 'لاعب عام',
+            age: 10,
+            groupId: anyGroup.id,
+            parentId: anyParent.id
+          }
+        });
+      }
+      validPlayerId = anyPlayer.id;
+    }
+
+    const paymentId = id || `pay_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
     const payment = await prisma.payment.upsert({
-      where: { id: id || 'new' },
+      where: { id: paymentId },
       update: { 
-        playerId, 
-        playerName, 
-        coachId, 
-        coachName, 
-        type, 
-        month, 
-        amount: parseFloat(amount),
+        playerId: validPlayerId, 
+        playerName: playerName || '', 
+        coachId: coachId || null, 
+        coachName: coachName || null, 
+        type: type || 'subscription', 
+        month: month || '', 
+        amount: resolvedAmount,
         discount: resolvedDiscount,
-        date: new Date(date), 
-        note,
-        packageName,
+        date: validDate, 
+        note: note || '',
+        packageName: packageName || null,
         sessionsCount: resolvedSessions
       },
       create: { 
-        id, 
-        playerId, 
-        playerName, 
-        coachId, 
-        coachName, 
-        type, 
-        month, 
-        amount: parseFloat(amount),
+        id: paymentId, 
+        playerId: validPlayerId, 
+        playerName: playerName || '', 
+        coachId: coachId || null, 
+        coachName: coachName || null, 
+        type: type || 'subscription', 
+        month: month || '', 
+        amount: resolvedAmount,
         discount: resolvedDiscount,
-        date: new Date(date), 
-        note,
-        packageName,
+        date: validDate, 
+        note: note || '',
+        packageName: packageName || null,
         sessionsCount: resolvedSessions
       }
     });

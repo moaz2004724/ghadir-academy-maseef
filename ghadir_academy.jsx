@@ -1985,14 +1985,15 @@ export default function App() {
         };
 
         if (data.players) {
-          if (data.players.length === 0) {
-            const localPlayers = JSON.parse(localStorage.getItem('ghadir_players') || '[]');
-            if (localPlayers.length > 0) {
-              localPlayers.forEach(lp => syncWithAPI('players', lp));
-            }
-          } else {
-            // Auto-repair missing logins/data for display
-            const repaired = data.players.map(p => {
+          setPlayers(prev => {
+            const combined = [...data.players];
+            (prev || []).forEach(localPlayer => {
+              if (localPlayer && !combined.some(cp => String(cp.id) === String(localPlayer.id) || (localPlayer.name && cp.name === localPlayer.name))) {
+                combined.push(localPlayer);
+                syncWithAPI('players', localPlayer);
+              }
+            });
+            return combined.map(p => {
               const migrated = migrateItem(p);
               if (migrated.email && migrated.password) return migrated;
               const phone = migrated.phone || "0500000000";
@@ -2002,8 +2003,7 @@ export default function App() {
                 password: migrated.password || `ghadir_${phone.slice(-4)}`
               };
             });
-            setPlayers(repaired);
-          }
+          });
         }
         if (data.coaches) setCoaches(data.coaches.map(migrateItem));
         if (data.groups) {
@@ -2011,7 +2011,18 @@ export default function App() {
           const cleanGroups = data.groups.filter(x => !obsoleteGroupIds.includes(x.id) && x.name !== "كرة القدم" && x.name !== "السباحة" && x.name !== "الكاراتيه" && x.name !== "البوكسينج" && x.name !== "كرة السلة");
           setGroups(cleanGroups);
         }
-        if (data.payments) setPayments(data.payments);
+        if (data.payments) {
+          setPayments(prev => {
+            const combined = [...data.payments];
+            (prev || []).forEach(localPay => {
+              if (localPay && !combined.some(cp => String(cp.id) === String(localPay.id))) {
+                combined.push(localPay);
+                syncWithAPI('payments', localPay);
+              }
+            });
+            return combined;
+          });
+        }
         if (data.attendance) setAttendance(data.attendance);
         if (data.coachesAttendance) setCoachesAttendance(data.coachesAttendance);
         if (data.evals) setEvals(data.evals);
