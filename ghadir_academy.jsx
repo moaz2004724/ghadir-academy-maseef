@@ -10,7 +10,7 @@ import logoInstitutionWhite from "./logo_institution_white.png";
 const API_URL = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL) || (
   typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
     ? "http://localhost:3001"
-    : ""
+    : (typeof window !== "undefined" && localStorage.getItem('ghadir_api_url')) || "https://ghadir-academy-maseef-production.up.railway.app"
 );
 
 function PasswordReveal({ userId, fallbackPassword, t }) {
@@ -6753,20 +6753,20 @@ function CoachPayments({ coachId, myPlayers, payments, setPayments, prices, coac
    PARENT PORTAL
 ══════════════════════════════════════════════════════════ */
 function ParentPortal({ user, onLogout, players = [], groups = [], coaches = [], parents = [], payments = [], attendance = [], evals = [], messages = [], setMessages = () => {}, prices = {}, trainings = [], t, syncStatus }) {
-  // 1. Identify the parent from the dynamic parents list or user
   const userPhone = (user?.phone || (user?.email || "").replace(/[^0-9]/g, "")).trim();
   const userEmail = (user?.email || "").toLowerCase().trim();
-  const parent = (parents || []).find(p => 
-    String(p.id) === String(user?.id) || 
-    String(p.userId) === String(user?.id) ||
-    (p.email && p.email.toLowerCase().trim() === userEmail) ||
-    (userPhone && p.phone && p.phone.replace(/[^0-9]/g, "") === userPhone)
-  ) || { name: user?.name, id: user?.id };
   
-  // 2. Filter players for this parent using parentId, playerIds, email, or phone
-  const myPlayers = (players || []).filter(p => {
+  const allAvailablePlayers = (players && players.length > 0)
+    ? players
+    : JSON.parse(localStorage.getItem('ghadir_players') || '[]');
+  const allAvailableParents = (parents && parents.length > 0)
+    ? parents
+    : JSON.parse(localStorage.getItem('ghadir_parents') || '[]');
+
+  // 1. Filter players for this parent using parentId, playerIds, email, or phone
+  let myPlayers = (allAvailablePlayers || []).filter(p => {
     if (!p) return false;
-    if (String(p.parentId) === String(user?.id) || String(p.parentId) === String(parent.id) || (parent.userId && String(p.parentId) === String(parent.userId))) {
+    if (String(p.parentId) === String(user?.id) || (user?.userId && String(p.parentId) === String(user?.userId))) {
       return true;
     }
     if (user?.playerIds && Array.isArray(user.playerIds) && user.playerIds.includes(p.id)) {
@@ -6776,11 +6776,28 @@ function ParentPortal({ user, onLogout, players = [], groups = [], coaches = [],
       return true;
     }
     const pPhone = (p.phone || "").replace(/[^0-9]/g, "");
-    if (userPhone && pPhone && (userPhone === pPhone || userPhone.endsWith(pPhone) || pPhone.endsWith(userPhone))) {
+    if (userPhone && pPhone && (userPhone === pPhone || userPhone.endsWith(pPhone) || pPhone.endsWith(userPhone) || (userPhone.length >= 4 && pPhone.includes(userPhone)))) {
+      return true;
+    }
+    if (userEmail && pPhone && userEmail.includes(pPhone)) {
       return true;
     }
     return false;
   });
+
+  // 2. Identify the parent from the dynamic parents list or user
+  const foundParent = (allAvailableParents || []).find(p => 
+    String(p.id) === String(user?.id) || 
+    String(p.userId) === String(user?.id) ||
+    (p.email && p.email.toLowerCase().trim() === userEmail) ||
+    (userPhone && p.phone && p.phone.replace(/[^0-9]/g, "") === userPhone)
+  );
+
+  const displayName = foundParent?.name 
+    || (myPlayers[0] ? `ولي أمر ${myPlayers[0].name}` : "")
+    || (user?.name && !user.name.includes("(") ? user.name : (myPlayers[0] ? `ولي أمر ${myPlayers[0].name}` : (user?.name || "ولي الأمر")));
+  
+  const parent = foundParent || { name: displayName, id: user?.id };
   
   const [activeChild, setActiveChild] = useState(myPlayers[0]?.id);
 
@@ -6801,7 +6818,7 @@ function ParentPortal({ user, onLogout, players = [], groups = [], coaches = [],
 
   // My coaches: find all unique coaches of my children
   const myCoachIds = [...new Set(myPlayers.map(p => {
-    const g = groups.find(x => x.id === p.groupId);
+    const g = (groups || []).find(x => x.id === p.groupId);
     return g?.coachId;
   }).filter(Boolean))];
 
@@ -6814,7 +6831,7 @@ function ParentPortal({ user, onLogout, players = [], groups = [], coaches = [],
   ];
 
   return (
-    <Shell title={`أهلاً، ${parent.name}`} subtitle="أكاديمية غدير الرياضية - فرع المصيف" color="#10B981" tabs={tabs} activeTab={tab} setActiveTab={setTab} onLogout={onLogout} badge="ولي أمر" user={user} t={t} syncStatus={syncStatus}>
+    <Shell title={displayName ? (displayName.startsWith("أهلاً") ? displayName : `أهلاً، ${displayName}`) : "أهلاً، ولي الأمر"} subtitle="أكاديمية غدير الرياضية - فرع المصيف" color="#10B981" tabs={tabs} activeTab={tab} setActiveTab={setTab} onLogout={onLogout} badge="ولي أمر" user={user} t={t} syncStatus={syncStatus}>
       {myPlayers.length > 1 && (
         <div style={{ display: "flex", gap: 8, marginBottom: 18, borderBottom: `1px solid ${t.border}`, paddingBottom: 14 }}>
           {myPlayers.map(p => (
