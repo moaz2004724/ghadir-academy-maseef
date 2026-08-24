@@ -6715,11 +6715,34 @@ function CoachPayments({ coachId, myPlayers, payments, setPayments, prices, coac
    PARENT PORTAL
 ══════════════════════════════════════════════════════════ */
 function ParentPortal({ user, onLogout, players, groups, coaches, parents, payments, attendance, evals, messages, setMessages, prices, trainings, t, syncStatus }) {
-  // 1. Identify the parent from the dynamic parents list
-  const parent = parents.find(p => p.id === user.id) || { name: user.name, id: user.id };
+  // 1. Identify the parent from the dynamic parents list or user
+  const userPhone = (user.phone || (user.email || "").replace(/[^0-9]/g, "")).trim();
+  const userEmail = (user.email || "").toLowerCase().trim();
+  const parent = parents.find(p => 
+    String(p.id) === String(user.id) || 
+    String(p.userId) === String(user.id) ||
+    (p.email && p.email.toLowerCase().trim() === userEmail) ||
+    (userPhone && p.phone && p.phone.replace(/[^0-9]/g, "") === userPhone)
+  ) || { name: user.name, id: user.id };
   
-  // 2. Filter players by parentId — use String() to handle type mismatches
-  const myPlayers = players.filter(p => String(p.parentId) === String(user.id));
+  // 2. Filter players for this parent using parentId, playerIds, email, or phone
+  const myPlayers = players.filter(p => {
+    if (!p) return false;
+    if (String(p.parentId) === String(user.id) || String(p.parentId) === String(parent.id) || (parent.userId && String(p.parentId) === String(parent.userId))) {
+      return true;
+    }
+    if (user.playerIds && Array.isArray(user.playerIds) && user.playerIds.includes(p.id)) {
+      return true;
+    }
+    if (userEmail && p.email && p.email.toLowerCase().trim() === userEmail) {
+      return true;
+    }
+    const pPhone = (p.phone || "").replace(/[^0-9]/g, "");
+    if (userPhone && pPhone && (userPhone === pPhone || userPhone.endsWith(pPhone) || pPhone.endsWith(userPhone))) {
+      return true;
+    }
+    return false;
+  });
   
   const [activeChild, setActiveChild] = useState(myPlayers[0]?.id);
 

@@ -441,11 +441,16 @@ app.get('/api/initial-data', authenticateToken, async (req, res) => {
       });
     } else if (role === 'PARENT') {
       const parentProfile = req.user.parentProfile;
-      if (!parentProfile) {
-        return res.status(403).json({ error: 'ملف ولي الأمر غير موجود' });
-      }
+      const userPhone = (req.user.email || "").replace(/[^0-9]/g, "");
 
-      const myChildren = players.filter(p => p.parentId === parentProfile.id);
+      const myChildren = players.filter(p => {
+        if (!p) return false;
+        if (parentProfile && p.parentId === parentProfile.id) return true;
+        if (p.email && req.user.email && p.email.toLowerCase() === req.user.email.toLowerCase()) return true;
+        if (userPhone && p.phone && (p.phone === userPhone || p.phone.endsWith(userPhone) || userPhone.endsWith(p.phone))) return true;
+        return false;
+      });
+
       const myChildrenIds = myChildren.map(p => p.id);
       const myChildrenGroupIds = myChildren.map(p => p.groupId).filter(Boolean);
 
@@ -456,7 +461,7 @@ app.get('/api/initial-data', authenticateToken, async (req, res) => {
       const filteredEvals = evalsRaw.filter(e => myChildrenIds.includes(e.playerId));
       const filteredTrainings = trainingsRaw.filter(t => myChildrenGroupIds.includes(t.groupId));
       const filteredMessages = messagesRaw.filter(m => m.from === req.user.id || m.to === req.user.id);
-      const filteredParents = parents.filter(par => par.id === parentProfile.id);
+      const filteredParents = parentProfile ? parents.filter(par => par.id === parentProfile.id) : [];
 
       return res.json({
         groups: filteredGroups,
