@@ -97,15 +97,7 @@ const authenticateToken = async (req, res, next) => {
     }
   }
 
-  // Graceful fallback for authenticated admin operations
-  const defaultAdmin = await prisma.user.findFirst({
-    where: { role: { in: ['ADMIN', 'SUPER_ADMIN'] } }
-  });
-  if (defaultAdmin) {
-    req.user = defaultAdmin;
-    return next();
-  }
-
+  // No fallback - require valid authentication
   return res.status(401).json({ error: 'من فضلك سجل دخولك أولاً' });
 };
 
@@ -957,18 +949,18 @@ app.post('/api/groups', authenticateToken, requireRole(['ADMIN', 'SUPER_ADMIN'])
     await prisma.coach.updateMany({
       where: { 
         groupId: group.id,
-        NOT: { id: coachId || 'none' }
+        NOT: { id: validCoachId || 'none' }
       },
       data: { groupId: null }
     });
 
-    if (coachId) {
+    if (validCoachId) {
       await prisma.coach.updateMany({
-        where: { id: coachId },
+        where: { id: validCoachId },
         data: { groupId: null }
       });
       await prisma.coach.update({
-        where: { id: coachId },
+        where: { id: validCoachId },
         data: { group: { connect: { id: group.id } } }
       });
     }

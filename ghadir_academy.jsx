@@ -1804,6 +1804,19 @@ export default function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem('ghadir_theme') || "dark");
 
   const [syncStatus, setSyncStatus] = useState("synced"); // 'synced', 'syncing', 'error'
+  const syncStatusRef = useRef("synced");
+  const setSyncStatusTracked = (val) => {
+    if (typeof val === 'function') {
+      setSyncStatus(prev => {
+        const next = val(prev);
+        syncStatusRef.current = next;
+        return next;
+      });
+    } else {
+      syncStatusRef.current = val;
+      setSyncStatus(val);
+    }
+  };
   const [lastUpdate, setLastUpdateState] = useState(() => parseInt(localStorage.getItem('ghadir_last_update') || '0'));
   const lastLocalWriteRef = useRef(0);
   const pendingSyncsRef = useRef(0);
@@ -1821,7 +1834,7 @@ export default function App() {
     if (!API_URL) return;
     markLocalWrite();
     pendingSyncsRef.current++;
-    setSyncStatus("syncing");
+    setSyncStatusTracked("syncing");
     try {
       const endpointMap = {
         groups: 'groups',
@@ -1856,12 +1869,12 @@ export default function App() {
         throw new Error(errorData.error || `HTTP error! status: ${res.status}`);
       }
       markLocalWrite();
-      setSyncStatus("synced");
+      setSyncStatusTracked("synced");
     } catch (e) {
       console.error(`Sync error for ${table}:`, e);
-      setSyncStatus("error");
+      setSyncStatusTracked("error");
       setTimeout(() => {
-        setSyncStatus(s => s === "error" ? "synced" : s);
+        setSyncStatusTracked(s => s === "error" ? "synced" : s);
       }, 4000);
     } finally {
       pendingSyncsRef.current--;
@@ -1947,12 +1960,14 @@ export default function App() {
   }, []);
 
   // Fetch from API if configured (with automatic background polling every 6s)
+  // SERVER-FIRST: The server is the single source of truth. 
+  // We never re-upload local-only data to the server automatically.
   useEffect(() => {
     if (!API_URL || !user) return;
 
     const fetchData = async () => {
       // Skip background update if we are actively syncing or a local write occurred recently
-      if (syncStatus === "syncing" || pendingSyncsRef.current > 0 || Date.now() - lastLocalWriteRef.current < 8000) {
+      if (syncStatusRef.current === "syncing" || pendingSyncsRef.current > 0 || Date.now() - lastLocalWriteRef.current < 8000) {
         return;
       }
       try {
@@ -1962,6 +1977,10 @@ export default function App() {
             ...(savedToken ? { 'Authorization': `Bearer ${savedToken}` } : {})
           }
         });
+        if (!res.ok) {
+          console.error("API Fetch Error: status", res.status);
+          return;
+        }
         const data = await res.json();
         
         // Double check right before setting the state in case a write happened while the fetch was in flight
@@ -1984,26 +2003,20 @@ export default function App() {
           return changed ? { ...item, email, password } : item;
         };
 
+        // SERVER-FIRST: Replace local state with server data directly.
+        // No zombie resurrection - deleted items stay deleted.
         if (data.players) {
-          setPlayers(prev => {
-            const combined = [...data.players];
-            (prev || []).forEach(localPlayer => {
-              if (localPlayer && !combined.some(cp => String(cp.id) === String(localPlayer.id) || (localPlayer.name && cp.name === localPlayer.name))) {
-                combined.push(localPlayer);
-                syncWithAPI('players', localPlayer);
-              }
-            });
-            return combined.map(p => {
-              const migrated = migrateItem(p);
-              if (migrated.email && migrated.password) return migrated;
-              const phone = migrated.phone || "0500000000";
-              return { 
-                ...migrated, 
-                email: migrated.email || `ghadir_${phone}@ghadirsports.sa`,
-                password: migrated.password || `ghadir_${phone.slice(-4)}`
-              };
-            });
+          const serverPlayers = data.players.map(p => {
+            const migrated = migrateItem(p);
+            if (migrated.email && migrated.password) return migrated;
+            const phone = migrated.phone || "0500000000";
+            return { 
+              ...migrated, 
+              email: migrated.email || `ghadir_${phone}@ghadirsports.sa`,
+              password: migrated.password || `ghadir_${phone.slice(-4)}`
+            };
           });
+          setPlayers(serverPlayers);
         }
         if (data.coaches) setCoaches(data.coaches.map(migrateItem));
         if (data.groups) {
@@ -2011,25 +2024,14 @@ export default function App() {
           const cleanGroups = data.groups.filter(x => !obsoleteGroupIds.includes(x.id) && x.name !== "كرة القدم" && x.name !== "السباحة" && x.name !== "الكاراتيه" && x.name !== "البوكسينج" && x.name !== "كرة السلة");
           setGroups(cleanGroups);
         }
-        if (data.payments) {
-          setPayments(prev => {
-            const combined = [...data.payments];
-            (prev || []).forEach(localPay => {
-              if (localPay && !combined.some(cp => String(cp.id) === String(localPay.id))) {
-                combined.push(localPay);
-                syncWithAPI('payments', localPay);
-              }
-            });
-            return combined;
-          });
-        }
+        if (data.payments) setPayments(data.payments);
         if (data.attendance) setAttendance(data.attendance);
         if (data.coachesAttendance) setCoachesAttendance(data.coachesAttendance);
         if (data.evals) setEvals(data.evals);
         if (data.messages) setMessages(data.messages);
         if (data.trainings) setTrainings(data.trainings);
         if (data.parents) setParents(data.parents.map(migrateItem));
-        setSyncStatus("synced");
+        setSyncStatusTracked("synced");
       } catch (e) {
         console.error("API Fetch Error:", e);
       }
@@ -2291,6 +2293,28 @@ export default function App() {
     }
   };
 
+  // Full logout: clear all cached data to prevent stale data on next login
+  const handleLogout = () => {
+    // Clear user session
+    localStorage.removeItem('ghadir_logged_user');
+    sessionStorage.removeItem('ghadir_token');
+    // Clear ALL cached data so next login starts fresh from server
+    localStorage.removeItem('ghadir_players');
+    localStorage.removeItem('ghadir_coaches');
+    localStorage.removeItem('ghadir_groups');
+    localStorage.removeItem('ghadir_parents');
+    localStorage.removeItem('ghadir_payments');
+    localStorage.removeItem('ghadir_attendance');
+    localStorage.removeItem('ghadir_coachesAttendance');
+    localStorage.removeItem('ghadir_evals');
+    localStorage.removeItem('ghadir_messages');
+    localStorage.removeItem('ghadir_trainings');
+    localStorage.removeItem('ghadir_prices');
+    localStorage.removeItem('ghadir_last_update');
+    setToken("");
+    setUser(null);
+  };
+
   return (
     <div style={{ fontFamily: "'Cairo',sans-serif", direction: "rtl", background: t.bg, minHeight: "100vh", color: t.text }}>
       <style>{`
@@ -2323,10 +2347,10 @@ export default function App() {
       {!user
         ? <LoginPage onLogin={(u, tok) => { setUser(u); if (tok) setToken(tok); }} players={players} coaches={coaches} parents={parents} t={t} />
         : user.role === "admin"
-          ? <AdminPortal  user={user} onLogout={() => setUser(null)} {...shared} />
+          ? <AdminPortal  user={user} onLogout={handleLogout} {...shared} />
           : user.role === "coach"
-            ? <CoachPortal  user={user} onLogout={() => setUser(null)} {...shared} />
-            : <ParentPortal user={user} onLogout={() => setUser(null)} {...shared} loginUser={user} />
+            ? <CoachPortal  user={user} onLogout={handleLogout} {...shared} />
+            : <ParentPortal user={user} onLogout={handleLogout} {...shared} loginUser={user} />
       }
     </div>
   );
