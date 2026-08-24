@@ -2127,6 +2127,18 @@ export default function App() {
       }
       return acc;
     }, []),
+    setParents: (val) => {
+      if (typeof val === 'function') {
+        setParents(prev => {
+          const next = val(prev);
+          setLastUpdate();
+          return next;
+        });
+      } else {
+        setParents(val);
+        setLastUpdate();
+      }
+    },
     payments,
     setPayments: (val) => {
       if (typeof val === 'function') {
@@ -2312,7 +2324,7 @@ export default function App() {
 /* ══════════════════════════════════════════════════════════
    ADMIN PORTAL
 ══════════════════════════════════════════════════════════ */
-function AdminPortal({ user, onLogout, groups, setGroups, coaches, setCoaches, players, setPlayers, parents, payments, setPayments, attendance, setAttendance, coachesAttendance, setCoachesAttendance, evals, messages, setMessages, prices, setPrices, trainings, setTrainings, t, syncStatus }) {
+function AdminPortal({ user, onLogout, groups, setGroups, coaches, setCoaches, players, setPlayers, parents, setParents, payments, setPayments, attendance, setAttendance, coachesAttendance, setCoachesAttendance, evals, setEvals, messages, setMessages, prices, setPrices, trainings, setTrainings, t, syncStatus }) {
   const [tab, setTab] = useState("overview");
   const [selectedPlayerId, setSelectedPlayerId] = useState(null);
   const tabs = [
