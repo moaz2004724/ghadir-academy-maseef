@@ -520,7 +520,7 @@ app.post('/api/players', authenticateToken, requireRole(['ADMIN', 'SUPER_ADMIN']
         where: {
           OR: [
             { email: { equals: email, mode: 'insensitive' } },
-            ...(phone ? [{ parentProfile: { phone: phone } }] : [])
+            ...(phone ? [{ phone: phone }, { parentProfile: { phone: phone } }] : [])
           ]
         },
         include: { parentProfile: true }
@@ -530,30 +530,44 @@ app.post('/api/players', authenticateToken, requireRole(['ADMIN', 'SUPER_ADMIN']
       }
     }
 
-    // 2. Create or Update User
+    // 2. Upsert User safely without unique constraint errors
     if (targetUser) {
       targetUser = await prisma.user.update({
         where: { id: targetUser.id },
         data: {
-          email,
           password: hashedPassword,
           encryptedPassword: encrypted,
-          name: parentName
+          name: parentName,
+          phone: phone || targetUser.phone
         }
       });
     } else {
-      targetUser = await prisma.user.create({
-        data: {
+      targetUser = await prisma.user.upsert({
+        where: { email },
+        update: {
+          password: hashedPassword,
+          encryptedPassword: encrypted,
+          name: parentName,
+          phone: phone || undefined
+        },
+        create: {
           email,
           password: hashedPassword,
           encryptedPassword: encrypted,
           name: parentName,
+          phone: phone || undefined,
           role: 'PARENT'
         }
       });
     }
 
-    // 3. Create or Update Parent profile
+    // 3. Find or Create Parent profile safely
+    if (!targetParent) {
+      targetParent = await prisma.parent.findUnique({
+        where: { userId: targetUser.id }
+      });
+    }
+
     if (!targetParent) {
       targetParent = await prisma.parent.create({
         data: {
@@ -565,8 +579,7 @@ app.post('/api/players', authenticateToken, requireRole(['ADMIN', 'SUPER_ADMIN']
       targetParent = await prisma.parent.update({
         where: { id: targetParent.id },
         data: {
-          userId: targetUser.id,
-          phone: phone || undefined
+          phone: phone || targetParent.phone
         }
       });
     }
@@ -578,7 +591,7 @@ app.post('/api/players', authenticateToken, requireRole(['ADMIN', 'SUPER_ADMIN']
     const resolvedWeight = (p.weight && !isNaN(p.weight)) ? parseFloat(p.weight) : null;
     const resolvedHeight = (p.height && !isNaN(p.height)) ? parseFloat(p.height) : null;
 
-    // Validate that nationalId is unique
+    // Validate that nationalId is unique if provided
     if (p.nationalId && p.nationalId.trim()) {
       const duplicate = await prisma.player.findFirst({
         where: {
@@ -591,60 +604,66 @@ app.post('/api/players', authenticateToken, requireRole(['ADMIN', 'SUPER_ADMIN']
       }
     }
 
-    // Create or update the Player record
+    // Resolve valid group
     let validGroupId = p.groupId;
     let groupExists = validGroupId ? await prisma.group.findUnique({ where: { id: validGroupId } }) : null;
     if (!groupExists) {
       if (validGroupId === 'g-football' || validGroupId === 'كرة القدم') {
         validGroupId = (resolvedAge <= 10) ? 'g-football-juniors' : 'g-football-seniors';
       } else if (validGroupId === 'g-swimming' || validGroupId === 'السباحة') {
-        validGroupId = 'g-swimming-boys';
+        validGroupId = 'g-swimming-men';
       } else {
         const firstGroup = await prisma.group.findFirst();
         validGroupId = firstGroup?.id;
       }
     }
 
-    let player;
-    const existing = p.id ? await prisma.player.findUnique({ where: { id: p.id } }) : null;
-
-    if (existing) {
-      player = await prisma.player.update({
-        where: { id: p.id },
-        data: {
-          name: p.name, phone: p.phone, age: resolvedAge,
-          status: p.status, position: p.position,
-          weight: resolvedWeight,
-          height: resolvedHeight,
-          score: p.score ? +p.score : null,
-          joinDate: p.joinDate ? new Date(p.joinDate) : undefined,
-          bus: p.bus,
-          nationalId: p.nationalId ? p.nationalId.trim() : null,
-          freezeRanges: p.freezeRanges,
-          trainingDays: p.trainingDays,
-          group: validGroupId ? { connect: { id: validGroupId } } : undefined,
-          parent: { connect: { id: resolvedParentId } }
-        }
-      });
-    } else {
-      player = await prisma.player.create({
-        data: {
-          id: p.id,
-          name: p.name, phone: p.phone, age: resolvedAge,
-          status: p.status || 'نشط', position: p.position,
-          weight: resolvedWeight,
-          height: resolvedHeight,
-          score: p.score ? +p.score : 80,
-          joinDate: p.joinDate ? new Date(p.joinDate) : undefined,
-          bus: p.bus,
-          nationalId: p.nationalId ? p.nationalId.trim() : null,
-          freezeRanges: p.freezeRanges,
-          trainingDays: p.trainingDays,
-          group: validGroupId ? { connect: { id: validGroupId } } : undefined,
-          parent: { connect: { id: resolvedParentId } }
-        }
-      });
+    let joinDateVal = new Date();
+    if (p.joinDate) {
+      const parsed = new Date(p.joinDate);
+      if (!isNaN(parsed.getTime())) joinDateVal = parsed;
     }
+
+    const playerId = p.id || `plr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+    const player = await prisma.player.upsert({
+      where: { id: playerId },
+      update: {
+        name: p.name,
+        phone: p.phone || '',
+        age: resolvedAge,
+        status: p.status || 'نشط',
+        position: p.position || '',
+        weight: resolvedWeight,
+        height: resolvedHeight,
+        score: (p.score !== undefined && p.score !== null && !isNaN(p.score)) ? +p.score : 80,
+        joinDate: joinDateVal,
+        bus: p.bus || null,
+        nationalId: p.nationalId ? p.nationalId.trim() : null,
+        freezeRanges: typeof p.freezeRanges === 'string' ? p.freezeRanges : JSON.stringify(p.freezeRanges || []),
+        trainingDays: typeof p.trainingDays === 'string' ? p.trainingDays : JSON.stringify(p.trainingDays || []),
+        group: validGroupId ? { connect: { id: validGroupId } } : undefined,
+        parent: { connect: { id: resolvedParentId } }
+      },
+      create: {
+        id: playerId,
+        name: p.name,
+        phone: p.phone || '',
+        age: resolvedAge,
+        status: p.status || 'نشط',
+        position: p.position || '',
+        weight: resolvedWeight,
+        height: resolvedHeight,
+        score: (p.score !== undefined && p.score !== null && !isNaN(p.score)) ? +p.score : 80,
+        joinDate: joinDateVal,
+        bus: p.bus || null,
+        nationalId: p.nationalId ? p.nationalId.trim() : null,
+        freezeRanges: typeof p.freezeRanges === 'string' ? p.freezeRanges : JSON.stringify(p.freezeRanges || []),
+        trainingDays: typeof p.trainingDays === 'string' ? p.trainingDays : JSON.stringify(p.trainingDays || []),
+        group: validGroupId ? { connect: { id: validGroupId } } : undefined,
+        parent: { connect: { id: resolvedParentId } }
+      }
+    });
 
     res.json({ ...player, parentId: resolvedParentId });
   } catch (e) {
