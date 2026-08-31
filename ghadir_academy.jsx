@@ -3456,9 +3456,19 @@ function AdminCoaches({ coaches, setCoaches, groups, players, payments, t }) {
                   )}
                 </div>
               ))}
-              <Btn style={{ width: "100%", marginTop: 14 }} onClick={() => { setForm({ ...c }); setModal("edit"); }}>
-                <AnimIcon type="edit" size={14} color="#fff" /> تعديل البيانات
-              </Btn>
+              <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                <Btn style={{ flex: 1, justifyContent: "center" }} onClick={() => { setForm({ ...c }); setModal("edit"); }}>
+                  <AnimIcon type="edit" size={14} color="#fff" /> تعديل البيانات
+                </Btn>
+                <Btn variant="danger" style={{ flex: 1, justifyContent: "center" }} onClick={() => {
+                  if (window.confirm(`هل أنت متأكد من حذف المدرب ${c.name}؟`)) {
+                    setCoaches(cs => cs.filter(x => x.id !== c.id));
+                    setSel(null);
+                  }
+                }}>
+                  <AnimIcon type="trash" size={14} color="#EF4444" /> حذف المدرب
+                </Btn>
+              </div>
             </Card>
 
             {/* Permissions Panel */}
@@ -3533,7 +3543,17 @@ function AdminCoaches({ coaches, setCoaches, groups, players, payments, t }) {
               <div style={{ flex: "1 1 calc(50% - 7px)" }}><Input label="الراتب" value={form.salary} onChange={v => setForm(x => ({ ...x, salary: +v }))} type="number" t={t}/></div>
               <div style={{ flex: "1 1 100%" }}><Input label="المجموعة" value={form.groupId} onChange={v => setForm(x => ({ ...x, groupId: v }))} options={[{ v: "", l: "بدون مجموعة" }, ...groups.map(g => ({ v: g.id, l: g.name }))]} t={t}/></div>
             </div>
-            <div style={{ display: "flex", gap: 10 }}><Btn onClick={save} style={{ flex: 1 }}><span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><AnimIcon type="save" size={14} color="currentColor" /> حفظ</span></Btn><Btn variant="secondary" onClick={() => setModal(null)}>إلغاء</Btn></div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <Btn onClick={save} style={{ flex: 1 }}><span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><AnimIcon type="save" size={14} color="currentColor" /> حفظ</span></Btn>
+              <Btn variant="danger" onClick={() => {
+                if (window.confirm(`هل أنت متأكد من حذف المدرب ${form.name}؟`)) {
+                  setCoaches(cs => cs.filter(x => x.id !== form.id));
+                  setModal(null);
+                  if (sel) setSel(null);
+                }
+              }}><span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><AnimIcon type="trash" size={14} color="#EF4444" /> حذف</span></Btn>
+              <Btn variant="secondary" onClick={() => setModal(null)}>إلغاء</Btn>
+            </div>
           </Modal>
         )}
       </div>
@@ -3555,12 +3575,22 @@ function AdminCoaches({ coaches, setCoaches, groups, players, payments, t }) {
           const enabledCount = Object.values(perms).filter(Boolean).length;
           return (
             <Card key={c.id} hover t={t} style={{ padding: 22, cursor: "pointer" }} onClick={() => setSel(c.id)}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-                <Avatar name={c.name} size={46} color="#2563EB"/>
-                <div>
-                  <div style={{ fontWeight: 800, fontSize: 14, color: t.text }}>{c.name}</div>
-                  <div style={{ fontSize: 11, color: t.textDim }}>{c.specialty} · {c.cert}</div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <Avatar name={c.name} size={46} color="#2563EB"/>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: 14, color: t.text }}>{c.name}</div>
+                    <div style={{ fontSize: 11, color: t.textDim }}>{c.specialty} · {c.cert}</div>
+                  </div>
                 </div>
+                <button onClick={(e) => {
+                  e.stopPropagation();
+                  if (window.confirm(`هل أنت متأكد من حذف المدرب ${c.name}؟`)) {
+                    setCoaches(cs => cs.filter(x => x.id !== c.id));
+                  }
+                }} style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", color: "#EF4444", borderRadius: 8, padding: "5px 9px", fontSize: 11, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, fontFamily: "'Cairo',sans-serif" }} title="حذف المدرب">
+                  <AnimIcon type="trash" size={12} color="#EF4444" /> حذف
+                </button>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
                 {[["المجموعة", g?.name || "—", "#06B6D4"], ["الراتب", fmtMoney(c.salary), "#D8A435"], ["الخبرة", `${c.exp} سنة`, "#2563EB"]].map(([l, v, col]) => (
