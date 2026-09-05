@@ -280,34 +280,42 @@ const getPlayerSubscriptionDetails = (player, trainings, attendance, payments) =
       };
     }
 
-    const groupTrainings = (trainings || []).filter(tr => tr && tr.groupId === player.groupId);
-    const groupAttendance = (attendance || []).filter(a => a && a.groupId === player.groupId);
+    const parseDays = (daysVal) => {
+      if (!daysVal) return [];
+      if (Array.isArray(daysVal)) return daysVal;
+      if (typeof daysVal === "string") {
+        try {
+          const parsed = JSON.parse(daysVal);
+          if (Array.isArray(parsed)) return parsed;
+        } catch(e) {}
+        return daysVal.split(",").map(s => s.trim()).filter(Boolean);
+      }
+      return [];
+    };
 
-    if (groupTrainings.length === 0 && groupAttendance.length === 0) {
-      return {
-        cycleSessions: [],
-        attendedCount: 0,
-        absentCount: 0,
-        excusedCount: 0,
-        remainingCount: 0,
-        cycleIndex: 1,
-        isUnpaid: false,
-        isExpired: false,
-        isActive: true
-      };
-    }
+    const groupTrainings = (trainings || []).filter(tr => tr && (tr.groupId === player.groupId || String(tr.groupId).trim() === String(player.groupId).trim()));
+    const groupAttendance = (attendance || []).filter(a => a && (a.groupId === player.groupId || String(a.groupId).trim() === String(player.groupId).trim()));
+
+    // Fallback schedule if no specific group training is configured, to ensure paid students never get 0/0
+    const defaultGroupDays = ["الخميس", "الجمعة", "السبت", "الثلاثاء"];
+    const effectiveTrainings = groupTrainings.length > 0
+      ? groupTrainings
+      : [{ isRecurring: true, days: defaultGroupDays }];
 
     const ARABIC_DAYS = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
 
     let playerDays = null;
     try {
-      playerDays = player.trainingDays ? JSON.parse(player.trainingDays) : null;
+      if (player.trainingDays) {
+        const parsed = parseDays(player.trainingDays);
+        if (parsed.length > 0) playerDays = parsed;
+      }
     } catch(e) {}
 
     const isGroupTrainingDay = (dateObj, dateStr) => {
       if (!dateObj || isNaN(dateObj.getTime())) return false;
       const dayName = ARABIC_DAYS[dateObj.getDay()];
-      if (playerDays && Array.isArray(playerDays)) {
+      if (playerDays && Array.isArray(playerDays) && playerDays.length > 0) {
         if (!playerDays.includes(dayName)) {
           return false;
         }
@@ -317,14 +325,16 @@ const getPlayerSubscriptionDetails = (player, trainings, attendance, payments) =
         return true;
       }
       
-      for (const tr of groupTrainings) {
+      for (const tr of effectiveTrainings) {
         if (!tr) continue;
-        if (tr.isRecurring === false || tr.isRecurring === undefined) {
+        const isRecurring = tr.isRecurring !== false;
+        if (!isRecurring) {
           if (tr.date && compareDates(tr.date, dateStr)) {
             return true;
           }
         } else {
-          if (tr.days && Array.isArray(tr.days) && tr.days.includes(dayName)) {
+          const trDays = parseDays(tr.days);
+          if (trDays.includes(dayName)) {
             return true;
           }
         }
@@ -369,29 +379,7 @@ const getPlayerSubscriptionDetails = (player, trainings, attendance, payments) =
       current.setHours(0, 0, 0, 0);
 
       const baseSessions = pay.sessionsCount || 12;
-      let tempCurrent = new Date(current);
-      let temp12thDate = null;
-      let tempCount = 0;
-      let tempSafety = 0;
-      while (tempCount < baseSessions && tempSafety < 1000) {
-        tempSafety++;
-        const dStr = getLocalDateString(tempCurrent);
-        if (limitDateStr && dStr >= limitDateStr) break;
-        const inCompFreeze = ranges.some(r => r && r.start && r.end && dStr >= r.start && dStr <= r.end);
-        if (inCompFreeze) {
-          tempCurrent.setDate(tempCurrent.getDate() + 1);
-          continue;
-        }
-        const inActFreeze = ranges.some(r => r && r.start && !r.end && dStr >= r.start);
-        if (inActFreeze) break;
-        if (isGroupTrainingDay(tempCurrent, dStr)) {
-          tempCount++;
-          temp12thDate = dStr;
-        }
-        tempCurrent.setDate(tempCurrent.getDate() + 1);
-      }
-
-      const targetSessionCount = (c < P || (temp12thDate && temp12thDate < todayStr)) ? baseSessions : (baseSessions === 12 ? 13 : baseSessions);
+      const targetSessionCount = baseSessions;
 
       let safety = 0;
       while (cycleDates.length < targetSessionCount && safety < 1000) {
@@ -419,6 +407,23 @@ const getPlayerSubscriptionDetails = (player, trainings, attendance, payments) =
           cycleDates.push(dateStr);
         }
         current.setDate(current.getDate() + 1);
+      }
+
+      // Safety fallback: If no dates matched (e.g. empty schedule or invalid days), populate standard dates
+      if (cycleDates.length === 0) {
+        let fallbackCurrent = new Date(parts.length === 3 ? new Date(+parts[0], +parts[1] - 1, +parts[2]) : new Date());
+        if (isNaN(fallbackCurrent.getTime())) fallbackCurrent = new Date();
+        fallbackCurrent.setHours(0, 0, 0, 0);
+        let fbSafety = 0;
+        while (cycleDates.length < targetSessionCount && fbSafety < 500) {
+          fbSafety++;
+          const dStr = getLocalDateString(fallbackCurrent);
+          const dayName = ARABIC_DAYS[fallbackCurrent.getDay()];
+          if (defaultGroupDays.includes(dayName)) {
+            cycleDates.push(dStr);
+          }
+          fallbackCurrent.setDate(fallbackCurrent.getDate() + 1);
+        }
       }
 
       cycles.push({
@@ -2394,7 +2399,7 @@ function AdminPortal({ user, onLogout, groups, setGroups, coaches, setCoaches, p
       {tab === "payments"  && <AdminPayments payments={payments} setPayments={setPayments} players={players} coaches={coaches} parents={parents} prices={prices} t={t} attendance={attendance} setAttendance={setAttendance} trainings={trainings} groups={groups} />}
       {tab === "prices"    && <AdminPrices prices={prices} setPrices={setPrices} t={t} groups={groups} setGroups={setGroups} />}
       {tab === "schedule"  && <AdminTrainings trainings={trainings} setTrainings={setTrainings} groups={groups} coaches={coaches} t={t} />}
-      {tab === "reports"   && <AdminReports players={players} coaches={coaches} groups={groups} payments={payments} attendance={attendance} evals={evals} t={t} />}
+      {tab === "reports"   && <AdminReports players={players} coaches={coaches} groups={groups} payments={payments} attendance={attendance} evals={evals} t={t} parents={parents} messages={messages} trainings={trainings} />}
       {tab === "events"    && <AdminEvents players={players} groups={groups} parents={parents} payments={payments} trainings={trainings} attendance={attendance} t={t} />}
       {tab === "messages"  && <Messaging messages={messages} setMessages={setMessages} meId="admin" meName="الإدارة" coaches={coaches} parents={parents} t={t} />}
     </Shell>
@@ -3911,7 +3916,7 @@ function AdminPlayers({ players = [], setPlayers = () => {}, groups = [], parent
                       
                       return (
                         <div key={idx} style={{ background: bgColor, border: `1px solid ${borderCol}`, padding: "10px 6px", borderRadius: 14, textAlign: "center", display: "flex", flexDirection: "column", gap: 4, alignItems: "center", boxShadow: "0 2px 6px rgba(0,0,0,0.01)" }}>
-                          <div style={{ fontSize: 10, color: idx === 12 ? "#10B981" : t.textFaint, fontWeight: idx === 12 ? 800 : 700 }}>{idx === 12 ? "حصة إضافية مجانية" : `حصة ${idx + 1}`}</div>
+                          <div style={{ fontSize: 10, color: t.textFaint, fontWeight: 700 }}>{`حصة ${idx + 1}`}</div>
                           <div style={{ fontSize: 14 }}>{icon}</div>
                           <div style={{ fontSize: 9, fontWeight: 800, color: textColor }}>{s.status === "مجمد" ? "مجمد" : formatArabicDate(s.date)}</div>
                         </div>
@@ -4788,14 +4793,19 @@ function AdminPayments({ payments, setPayments, players, coaches, parents, price
           
           let isTrainingDay = false;
           for (const tr of groupTrainings) {
-            if (tr.isRecurring === false || tr.isRecurring === undefined) {
+            const isRecurring = tr.isRecurring !== false;
+            if (!isRecurring) {
               if (tr.date && compareDates(tr.date, dateStr)) {
                 isTrainingDay = true;
                 break;
               }
             } else {
               const dayName = ARABIC_DAYS[current.getDay()];
-              if (tr.days && tr.days.includes(dayName)) {
+              let trDays = tr.days;
+              if (typeof trDays === 'string') {
+                try { trDays = JSON.parse(trDays); } catch(e) { trDays = trDays.split(',').map(s => s.trim()); }
+              }
+              if (Array.isArray(trDays) && trDays.includes(dayName)) {
                 isTrainingDay = true;
                 break;
               }
@@ -5463,12 +5473,83 @@ function AdminTrainings({ trainings, setTrainings, groups, coaches, t }) {
 /* ══════════════════════════════════════════════════════════
    ADMIN REPORTS — Excel Export (Monthly & Annual)
 ══════════════════════════════════════════════════════════ */
-function AdminReports({ players, coaches, groups, payments, attendance, evals, t }) {
+function AdminReports({ players, coaches, groups, payments, attendance, evals, t, parents = [], messages = [], trainings = [] }) {
   const [reportType, setReportType] = useState("monthly");
   const [selMonth, setSelMonth] = useState(CUR_MONTH);
   const [selYear, setSelYear] = useState(new Date().getFullYear().toString());
   const [exporting, setExporting] = useState(false);
   const [lastExport, setLastExport] = useState(null);
+  const [backupLoading, setBackupLoading] = useState(false);
+
+  const downloadFullBackup = async () => {
+    setBackupLoading(true);
+    try {
+      const savedToken = localStorage.getItem('ghadir_token');
+      let backupPayload = null;
+
+      if (API_URL) {
+        try {
+          const res = await fetch(`${API_URL}/api/admin/backup-export`, {
+            headers: {
+              ...(savedToken ? { 'Authorization': `Bearer ${savedToken}` } : {})
+            }
+          });
+          if (res.ok) {
+            backupPayload = await res.json();
+          }
+        } catch (netErr) {
+          console.warn("Backend backup endpoint unreachable, falling back to local snapshot:", netErr);
+        }
+      }
+
+      if (!backupPayload) {
+        backupPayload = {
+          timestamp: new Date().toISOString(),
+          branch: "فرع المصيف أكاديمية غدير",
+          source: "local_state_snapshot",
+          counts: {
+            players: (players || []).length,
+            parents: (parents || []).length,
+            coaches: (coaches || []).length,
+            groups: (groups || []).length,
+            payments: (payments || []).length,
+            attendance: (attendance || []).length,
+            evaluations: (evals || []).length,
+            messages: (messages || []).length,
+            trainings: (trainings || []).length
+          },
+          data: {
+            players,
+            parents,
+            coaches,
+            groups,
+            payments,
+            attendance,
+            evaluations: evals,
+            messages,
+            trainings
+          }
+        };
+      }
+
+      const dateStr = new Date().toISOString().split('T')[0];
+      const fileName = `ghadir_maseef_full_backup_${dateStr}.json`;
+      const blob = new Blob([JSON.stringify(backupPayload, null, 2)], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("Backup download error:", e);
+      alert("حدث خطأ أثناء تنزيل النسخة الاحتياطية: " + e.message);
+    } finally {
+      setBackupLoading(false);
+    }
+  };
 
   const MONTHS_LIST = AR_MONTHS.map(m => `${m} ${selYear}`);
   const YEARS_LIST = ["2024", "2025", "2026", "2027"];
@@ -5772,6 +5853,38 @@ function AdminReports({ players, coaches, groups, payments, attendance, evals, t
             </div>
           </div>
         )}
+      </Card>
+
+      {/* Full Database Backup Section */}
+      <Card t={t} style={{ padding: 24, marginTop: 20, background: t.name === "dark" ? "linear-gradient(135deg, #0f172a, #1e293b)" : "linear-gradient(135deg, #f8fafc, #f1f5f9)", borderColor: "rgba(16,185,129,.3)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <span style={{ fontSize: 24 }}><AnimIcon type="shield" size={24} color="#10B981" /></span>
+              <div style={{ fontWeight: 800, fontSize: 16, color: t.text }}>النسخة الاحتياطية الشاملة لقاعدة البيانات (JSON Backup)</div>
+            </div>
+            <div style={{ fontSize: 12, color: t.textDim }}>
+              تنزيل ملف نسخة احتياطية كامل لجميع بيانات النظام: اللاعبون، أولياء الأمور، المدربون، الاشتراكات والمدفوعات، وسجلات الحضور والتمارين.
+            </div>
+            <div style={{ fontSize: 11, color: "#10B981", marginTop: 4, fontWeight: 700 }}>
+              حفظ آمن بنقرة واحدة — يتيح لك استعادة كافة البيانات في أي وقت.
+            </div>
+          </div>
+          <button onClick={downloadFullBackup} disabled={backupLoading}
+            style={{ background: backupLoading ? t.border : "linear-gradient(135deg, #2563EB, #1D4ED8)", color: "#fff", border: "none", borderRadius: 14, padding: "14px 28px", fontSize: 14, fontWeight: 800, cursor: backupLoading ? "wait" : "pointer", transition: "all .3s", boxShadow: "0 6px 20px rgba(37,99,235,.25)", display: "flex", alignItems: "center", gap: 10, fontFamily: "'Cairo',sans-serif", minWidth: 230, justifyContent: "center" }}>
+            {backupLoading ? (
+              <>
+                <span style={{ width: 16, height: 16, border: "2px solid rgba(255,255,255,.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin .6s linear infinite", display: "inline-block" }} />
+                جارٍ تجهيز النسخة...
+              </>
+            ) : (
+              <>
+                <AnimIcon type="sync" size={16} color="#fff" />
+                تحميل نسخة احتياطية (JSON)
+              </>
+            )}
+          </button>
+        </div>
       </Card>
 
       {/* Info Cards */}
@@ -6529,7 +6642,7 @@ function CoachPlayers({ myPlayers, group, evals, t, trainings, attendance, payme
                       
                       return (
                         <div key={idx} style={{ background: bgColor, border: `1px solid ${borderCol}`, padding: "10px 6px", borderRadius: 14, textAlign: "center", display: "flex", flexDirection: "column", gap: 4, alignItems: "center", boxShadow: "0 2px 6px rgba(0,0,0,0.01)" }}>
-                          <div style={{ fontSize: 10, color: idx === 12 ? "#10B981" : t.textFaint, fontWeight: idx === 12 ? 800 : 700 }}>{idx === 12 ? "حصة إضافية مجانية" : `حصة ${idx + 1}`}</div>
+                          <div style={{ fontSize: 10, color: t.textFaint, fontWeight: 700 }}>{`حصة ${idx + 1}`}</div>
                           <div style={{ fontSize: 14 }}>{icon}</div>
                           <div style={{ fontSize: 9, fontWeight: 800, color: textColor }}>{s.status === "مجمد" ? "مجمد" : formatArabicDate(s.date)}</div>
                         </div>
@@ -7217,7 +7330,7 @@ function ParentOverview({ child, childGroup, childCoach, childPays, childEvals, 
                       gap: 4, 
                       alignItems: "center"
                     }}>
-                      <div style={{ fontSize: 10, color: idx === 12 ? "#10B981" : t.textFaint, fontWeight: idx === 12 ? 800 : 700 }}>{idx === 12 ? "حصة إضافية مجانية" : `حصة ${idx + 1}`}</div>
+                      <div style={{ fontSize: 10, color: t.textFaint, fontWeight: 700 }}>{`حصة ${idx + 1}`}</div>
                       <div style={{ fontSize: 15 }}>{statusIcon}</div>
                       <div style={{ fontSize: 9, fontWeight: 800, color: textColor }}>{s.status === "مجمد" ? "مجمد" : formatArabicDate(s.date)}</div>
                     </div>

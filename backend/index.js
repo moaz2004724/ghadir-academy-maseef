@@ -335,6 +335,72 @@ app.post('/api/reveal-password', authenticateToken, requireRole(['ADMIN', 'SUPER
   }
 });
 
+// --- Database Full Backup Export (Admin Only) ---
+app.get('/api/admin/backup-export', authenticateToken, requireRole(['ADMIN', 'SUPER_ADMIN']), async (req, res) => {
+  try {
+    const [
+      users,
+      coaches,
+      parents,
+      players,
+      groups,
+      payments,
+      attendance,
+      evaluations,
+      messages,
+      trainings
+    ] = await Promise.all([
+      prisma.user.findMany(),
+      prisma.coach.findMany(),
+      prisma.parent.findMany(),
+      prisma.player.findMany(),
+      prisma.group.findMany(),
+      prisma.payment.findMany(),
+      prisma.attendance.findMany(),
+      prisma.evaluation.findMany(),
+      prisma.message.findMany(),
+      prisma.training.findMany()
+    ]);
+
+    const backupData = {
+      timestamp: new Date().toISOString(),
+      branch: "فرع المصيف أكاديمية غدير",
+      counts: {
+        users: users.length,
+        coaches: coaches.length,
+        parents: parents.length,
+        players: players.length,
+        groups: groups.length,
+        payments: payments.length,
+        attendance: attendance.length,
+        evaluations: evaluations.length,
+        messages: messages.length,
+        trainings: trainings.length
+      },
+      data: {
+        users,
+        coaches,
+        parents,
+        players,
+        groups,
+        payments,
+        attendance,
+        evaluations,
+        messages,
+        trainings
+      }
+    };
+
+    const dateStr = new Date().toISOString().split('T')[0];
+    res.setHeader('Content-Disposition', `attachment; filename="ghadir_maseef_backup_${dateStr}.json"`);
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    return res.json(backupData);
+  } catch (error) {
+    console.error("Backup export error:", error);
+    return res.status(500).json({ error: "فشل تصدير النسخة الاحتياطية: " + error.message });
+  }
+});
+
 // --- Generic Fetch Route (To get all state at once - Securely filtered) ---
 app.get('/api/initial-data', authenticateToken, async (req, res) => {
   try {
